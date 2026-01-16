@@ -2568,7 +2568,8 @@ class FocusManager(QtWidgets.QMainWindow):
         version_layout.addWidget(self.version_context_label)
         vcs_box = QtWidgets.QGroupBox("Version Control (AutoGIT)")
         vcs_layout = self._register_layout(QtWidgets.QVBoxLayout(vcs_box))
-        self.autogit_path_label = QtWidgets.QLabel("Target: (focus or select a project)")
+        self.autogit_path_label = QtWidgets.QLabel("Push Dir: (focus or select a project)")
+        self.autogit_remote_label = QtWidgets.QLabel("Remote: (unknown)")
         self.autogit_status_label = QtWidgets.QLabel("Git: Unknown")
         self.autogit_status_label.setStyleSheet("color: #8ad0ff;")
         self.autogit_status_btn = QtWidgets.QPushButton("Git Status")
@@ -2592,6 +2593,7 @@ class FocusManager(QtWidgets.QMainWindow):
         self.vcs_output.setReadOnly(True)
         self.vcs_output.setPlaceholderText("AutoGIT output will appear here.")
         vcs_layout.addWidget(self.autogit_path_label)
+        vcs_layout.addWidget(self.autogit_remote_label)
         vcs_layout.addWidget(self.autogit_status_label)
         vcs_layout.addLayout(vcs_btn_row)
         vcs_layout.addWidget(self.vcs_output)
@@ -5334,18 +5336,33 @@ class FocusManager(QtWidgets.QMainWindow):
                 subprocess.run(["git", "-C", path, "remote", "set-url", "origin", remote_url], capture_output=True, text=True, env=env)
         return True, "Remote ensured"
 
+    def _resolve_repo_url(self, project, path):
+        env = self.git_env()
+        git_url = None
+        if path and os.path.isdir(path):
+            res = subprocess.run(["git", "-C", path, "remote", "get-url", "origin"], capture_output=True, text=True, env=env)
+            if res.returncode == 0 and res.stdout.strip():
+                git_url = res.stdout.strip()
+        if not git_url:
+            username, _, _ = self.get_credentials()
+            if username and project:
+                git_url = f"https://github.com/{username}/{project}.git"
+        return git_url or "(remote not set)"
+
     def update_autogit_path_label(self):
         path, proj = self.resolve_project_path(require_focus_or_selection=False, prefer_canonical=True)
         if path and proj:
             work_path = self._project_worktree_path(proj)
-            self.autogit_path_label.setText(f"Target: {proj} ({work_path})")
+            self.autogit_path_label.setText(f"Push Dir: {work_path}")
+            self.autogit_remote_label.setText(f"Remote: {self._resolve_repo_url(proj, work_path)}")
             if self.autogit.available():
                 self.update_git_status_label(work_path)
             else:
                 self.autogit_status_label.setText("AutoGIT not found")
                 self.autogit_status_label.setStyleSheet("color: #d14b4b;")
         else:
-            self.autogit_path_label.setText("Target: (focus or select a project)")
+            self.autogit_path_label.setText("Push Dir: (focus or select a project)")
+            self.autogit_remote_label.setText("Remote: (unknown)")
             self.autogit_status_label.setText("Git: Unknown")
             self.autogit_status_label.setStyleSheet("color: #8ad0ff;")
 
