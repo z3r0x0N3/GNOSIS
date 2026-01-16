@@ -1,0 +1,44 @@
+TaskID,Category,Subsystem,TaskName,Description,Dependencies,Priority,Status
+T-001,Infrastructure,Hardware,Verify BIOS/UEFI Security,"Confirm Secure Boot, BIOS password, Intel ME disabled where possible",None,High,Pending
+T-002,Infrastructure,Host OS,Validate BitLocker + VeraCrypt Stack,"Ensure BitLocker active and VeraCrypt container integrity verified",T-001,High,Pending
+T-003,Infrastructure,VM,Validate Parrot OS LUKS Chain,"Confirm Enc1 mount logic and secondary VM access",T-002,High,Pending
+T-004,Infrastructure,Automation,Audit bashrc Conditional Logic,"Verify Enc1-dependent alias switching and failure handling",T-003,Medium,Pending
+T-005,Infrastructure,Kernel,Enable MAC Framework,"Configure AppArmor/SELinux with default-deny profiles",T-003,High,Pending
+T-006,Infrastructure,Network,Firewall Baseline,"Apply nftables/iptables default-deny with explicit Tor/VPN allowances",T-005,High,Pending
+T-007,Infrastructure,Network,Tor Stack Verification,"Verify obfs4/meek/snowflake transports functional",T-006,High,Pending
+T-008,Infrastructure,Network,VPN-over-Tor Validation,"Confirm routing order and DNS leak prevention",T-007,High,Pending
+T-009,Infrastructure,Monitoring,Sandbox Escape Detection,"Implement SbEscape monitoring and quarantine logic",T-005,High,Pending
+T-010,Infrastructure,Security,RAM Clearance Hooks,"Ensure RAM wipe on VM shutdown or Enc1 lock",T-003,High,Pending
+
+T-020,Console Core,UI,Stability Scheduler Audit,"Verify UI mutation scheduler fully enforced across all views",None,High,Pending
+T-021,Console Core,UI,Network Pane Visualization,"Implement latency-labeled edge rendering with hover amplification",T-020,Medium,Pending
+T-022,Console Core,UI,Workspace Pane Layout,"Fix horizontal control layout and resizable panels",T-020,Medium,Pending
+T-023,Console Core,UI,Theme Consistency,"Ensure network/workspace panes inherit global palette",T-020,Low,Pending
+T-024,Console Core,UI,AI Toggle Enforcement,"Disable/enable AI features cleanly via settings toggle",T-020,High,Pending
+
+T-030,Versioning,Git,Dirty Tree Handling,"Implement auto-stage or auto-stash before pull --rebase",None,High,Pending
+T-031,Versioning,Git,LocalSync Folder Selector,"Allow project-specific local sync folder selection",T-030,Medium,Pending
+T-032,Versioning,Git,Credential Injection,"Ensure GitHub PAT used non-interactively for all git ops",T-030,High,Pending
+
+T-040,GCN Network,Core,Epoch Beacon Source,"Replace system clock with blockchain MTP for lock-cycle timing",None,High,Pending
+T-041,GCN Network,Core,Lock-Cycle Diff Detection,"Implement payload diff short-circuit logic",T-040,High,Pending
+T-042,GCN Network,Security,Node Retirement Logic,"Revoke prior-cycle route tokens and clear cached pubkeys",T-041,High,Pending
+T-043,GCN Network,Security,Per-Node Envelope Generation,"Implement AES-GCM + PGP envelope per node",T-042,High,Pending
+T-044,GCN Network,Network,Liveness Probing,"Implement Tor-based ping checks and quorum logic",T-043,High,Pending
+T-045,GCN Network,Resilience,Rollback & Quarantine,"Rollback on <3 nodes online or high error rate",T-044,High,Pending
+
+T-060,CAMP Engine,Data,Stimulus Ingestion,"Implement loader.js for STM tag extraction",None,High,Pending
+T-061,CAMP Engine,Model,Orientation Mapping,"Map STM → ORI using weighted heuristics",T-060,High,Pending
+T-062,CAMP Engine,Model,Thought Tag Engine,"Implement THT classification logic",T-061,Medium,Pending
+T-063,CAMP Engine,Model,Emotion Weighting,"Implement EMO weighting and decay",T-062,Medium,Pending
+T-064,CAMP Engine,Model,Behavior Prediction,"Map EMO + ORI → BEH actions",T-063,Medium,Pending
+T-065,CAMP Engine,Learning,Habit Formation Logic,"Implement HAB reinforcement with entropy decay",T-064,High,Pending
+T-066,CAMP Engine,Learning,Outcome Feedback Loop,"Update weights using OUT tags and accuracy checks",T-065,High,Pending
+
+T-080,Trading AI,L1,TradingAgent Skeleton,"Implement MarketReader, SignalEngine, RiskManager",None,High,Pending
+T-081,Trading AI,L1,Execution Simulator,"Simulate fills, slippage, latency",T-080,High,Pending
+T-082,Trading AI,L1,Metric Collection,"Track P&L, Sharpe, MDD, latency",T-081,High,Pending
+T-083,Trading AI,L2,Meta-Learner,"Implement hyperparameter proposal & evaluation",T-082,High,Pending
+T-084,Trading AI,L3,Governance Layer,"Implement constraint enforcement and structural mutation control",T-083,High,Pending
+T-085,Trading AI,System,Canary & Kill Switch,"Implement staged deployment and auto-pause logic",T-084,High,Pending
+

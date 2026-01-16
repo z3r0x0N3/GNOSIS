@@ -1,4 +1,45 @@
 uuid,title,due_date,priority,status,list_name,project
-b2c1d3e4-0001-4a11-9c3f-aaaabbbb0001,Wire up login UI,2024-09-15,1,pending,Frontend,SampleProject
-c3d4e5f6-0002-4b22-9d4f-cccceeee0002,Add API error handling,2024-09-18,0,in_progress,Backend,SampleProject
-d4e5f6g7-0003-4c33-9e5f-ddddffff0003,Write deployment checklist,2024-09-20,0,pending,Ops,SampleProject
+11111111-0001-4a11-9c3f-000000000001,Verify BIOS and Secure Boot configuration,2026-02-01,1,pending,Infrastructure,Singularity
+11111111-0002-4a11-9c3f-000000000002,Validate BitLocker and VeraCrypt encryption stack,2026-02-02,1,pending,Infrastructure,Singularity
+11111111-0003-4a11-9c3f-000000000003,Verify Parrot OS LUKS Enc1 mount chain,2026-02-03,1,pending,Infrastructure,Singularity
+11111111-0004-4a11-9c3f-000000000004,Audit conditional bashrc alias switching,2026-02-04,0,pending,Infrastructure,Singularity
+11111111-0005-4a11-9c3f-000000000005,Configure AppArmor or SELinux default-deny profiles,2026-02-05,1,pending,Infrastructure,Singularity
+11111111-0006-4a11-9c3f-000000000006,Implement firewall default-deny with Tor exceptions,2026-02-06,1,pending,Infrastructure,Singularity
+11111111-0007-4a11-9c3f-000000000007,Verify Tor obfs4 meek snowflake transports,2026-02-07,1,pending,Infrastructure,Singularity
+11111111-0008-4a11-9c3f-000000000008,Validate VPN over Tor routing integrity,2026-02-08,1,pending,Infrastructure,Singularity
+11111111-0009-4a11-9c3f-000000000009,Implement sandbox escape detection and quarantine,2026-02-09,1,pending,Infrastructure,Singularity
+11111111-0010-4a11-9c3f-000000000010,Implement RAM wipe on VM shutdown and Enc1 lock,2026-02-10,1,pending,Infrastructure,Singularity
+
+22222222-0011-4b22-9d4f-000000000011,Audit UI mutation scheduler coverage,2026-02-11,1,pending,Console Core,Singularity
+22222222-0012-4b22-9d4f-000000000012,Fix workspace pane horizontal layout,2026-02-12,0,pending,Console Core,Singularity
+22222222-0013-4b22-9d4f-000000000013,Fix network pane horizontal layout,2026-02-13,0,pending,Console Core,Singularity
+22222222-0014-4b22-9d4f-000000000014,Implement latency labeled network graph edges,2026-02-14,0,pending,Console Core,Singularity
+22222222-0015-4b22-9d4f-000000000015,Ensure network and workspace panes inherit global theme,2026-02-15,0,pending,Console Core,Singularity
+22222222-0016-4b22-9d4f-000000000016,Implement AI enable disable toggle in settings,2026-02-16,1,pending,Console Core,Singularity
+
+33333333-0017-4c33-9e5f-000000000017,Handle dirty git tree before pull rebase,2026-02-17,1,pending,Versioning,Singularity
+33333333-0018-4c33-9e5f-000000000018,Add LocalSync folder selector per project,2026-02-18,0,pending,Versioning,Singularity
+33333333-0019-4c33-9e5f-000000000019,Inject GitHub credentials for non interactive git ops,2026-02-19,1,pending,Versioning,Singularity
+
+44444444-0020-4d44-9f6f-000000000020,Implement blockchain based epoch beacon timing,2026-02-20,1,pending,GCN Network,Singularity
+44444444-0021-4d44-9f6f-000000000021,Implement lock cycle payload diff detection,2026-02-21,1,pending,GCN Network,Singularity
+44444444-0022-4d44-9f6f-000000000022,Implement node retirement and route token revocation,2026-02-22,1,pending,GCN Network,Singularity
+44444444-0023-4d44-9f6f-000000000023,Implement per node AES GCM and PGP envelope logic,2026-02-23,1,pending,GCN Network,Singularity
+44444444-0024-4d44-9f6f-000000000024,Implement Tor based node liveness probing,2026-02-24,1,pending,GCN Network,Singularity
+44444444-0025-4d44-9f6f-000000000025,Implement rollback and node quarantine logic,2026-02-25,1,pending,GCN Network,Singularity
+
+55555555-0026-4e55-a06f-000000000026,Implement stimulus ingestion loader for psy tags,2026-02-26,1,pending,CAMP Engine,Singularity
+55555555-0027-4e55-a06f-000000000027,Implement orientation mapping logic,2026-02-27,1,pending,CAMP Engine,Singularity
+55555555-0028-4e55-a06f-000000000028,Implement thought classification engine,2026-02-28,0,pending,CAMP Engine,Singularity
+55555555-0029-4e55-a06f-000000000029,Implement emotion weighting and decay system,2026-03-01,0,pending,CAMP Engine,Singularity
+55555555-0030-4e55-a06f-000000000030,Implement behavior prediction mapping,2026-03-02,0,pending,CAMP Engine,Singularity
+55555555-0031-4e55-a06f-000000000031,Implement habit reinforcement with entropy decay,2026-03-03,1,pending,CAMP Engine,Singularity
+55555555-0032-4e55-a06f-000000000032,Implement outcome feedback recalibration loop,2026-03-04,1,pending,CAMP Engine,Singularity
+
+66666666-0033-4f66-b07f-000000000033,Implement trading agent core components,2026-03-05,1,pending,Trading AI,Singularity
+66666666-0034-4f66-b07f-000000000034,Implement execution simulator with slippage and latency,2026-03-06,1,pending,Trading AI,Singularity
+66666666-0035-4f66-b07f-000000000035,Implement trading performance metrics collector,2026-03-07,1,pending,Trading AI,Singularity
+66666666-0036-4f66-b07f-000000000036,Implement meta learner optimization layer,2026-03-08,1,pending,Trading AI,Singularity
+66666666-0037-4f66-b07f-000000000037,Implement governance meta meta learner,2026-03-09,1,pending,Trading AI,Singularity
+66666666-0038-4f66-b07f-000000000038,Implement canary deployment and kill switch logic,2026-03-10,1,pending,Trading AI,Singularity
+
