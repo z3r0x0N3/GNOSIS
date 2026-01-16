@@ -6285,27 +6285,51 @@ class FocusManager(QtWidgets.QMainWindow):
         env = env or self.git_env()
 
         def work():
+            def git(cmd):
+                return subprocess.run(["git", "-C", path, *cmd], capture_output=True, text=True, env=env)
+
             pre = self.autogit.ensure_git_repo(path, env=env)
             if pre.returncode != 0 and self.autogit.is_dubious_error(pre):
                 if self.autogit.add_safe_directory(path, reason="autocommit ensure repo", env=env):
                     pre = self.autogit.ensure_git_repo(path, env=env)
             if pre.returncode != 0:
                 return False, "git init failed", (pre.stderr or pre.stdout or "").strip()
-            status = subprocess.run(["git", "-C", path, "status", "--porcelain", "-uall"], capture_output=True, text=True, env=env)
+            # ensure we are on main (detach-safe)
+            branch = git(["rev-parse", "--abbrev-ref", "HEAD"])
+            current_branch = (branch.stdout or "").strip()
+            if current_branch in {"", "HEAD"} or current_branch != "main":
+                checkout = git(["checkout", "-B", "main"])
+                if checkout.returncode != 0:
+                    return False, "git checkout main failed", (checkout.stderr or checkout.stdout or "").strip()
+            # pre-sync with remote if present
+            fetch = git(["fetch", "origin", "main"])
+            fetch_out = (fetch.stderr or fetch.stdout or "").lower()
+            pull_needed = fetch.returncode == 0
+            if pull_needed:
+                pull = git(["pull", "--rebase", "origin", "main"])
+                pull_out = (pull.stderr or pull.stdout or "").strip()
+                if pull.returncode != 0 and "couldn't find remote ref main" not in pull_out.lower():
+                    # if pull fails due to dirty tree, skip rebase and continue with local state
+                    if "unstaged changes" in pull_out.lower():
+                        self.log_debug("VERSIONING", {"autogit": "pull_skipped_dirty", "path": path, "stderr": pull_out})
+                    else:
+                        return False, "git pull --rebase failed", pull_out
+
+            status = git(["status", "--porcelain", "-uall"])
             status_out = status.stdout.strip() if status.stdout else ""
             if status.returncode != 0:
                 return False, "git status failed", (status.stderr or status.stdout or "").strip()
-            add = subprocess.run(["git", "-C", path, "add", "-A"], capture_output=True, text=True, env=env)
+            add = git(["add", "-A"])
             if add.returncode != 0:
                 return False, "git add failed", (add.stderr or add.stdout or "").strip()
-            diff = subprocess.run(["git", "-C", path, "diff", "--cached", "--name-only"], capture_output=True, text=True, env=env)
+            diff = git(["diff", "--cached", "--name-only"])
             staged = diff.stdout.strip() if diff.stdout else ""
             if not staged:
                 # capture untracked after add attempt for debugging
-                untracked = subprocess.run(["git", "-C", path, "ls-files", "--others", "--exclude-standard"], capture_output=True, text=True, env=env)
+                untracked = git(["ls-files", "--others", "--exclude-standard"])
                 return True, "clean", status_out or (untracked.stdout.strip() if untracked.stdout else "")
             msg = f"{'Manual' if manual else 'Auto'} commit {now_str()}"
-            commit = subprocess.run(["git", "-C", path, "commit", "-m", msg], capture_output=True, text=True, env=env)
+            commit = git(["commit", "-m", msg])
             commit_out = (commit.stderr or "") + (commit.stdout or "")
             if commit.returncode != 0:
                 lowered = commit_out.lower()
@@ -6315,21 +6339,16 @@ class FocusManager(QtWidgets.QMainWindow):
             ok, msg_remote = self.ensure_remote_repo(proj, dry_run=False)
             if not ok:
                 return False, msg_remote, ""
-            push = subprocess.run(["git", "-C", path, "push", "-u", "origin", "main"], capture_output=True, text=True, env=env)
+            push = git(["push", "-u", "origin", "main"])
             if push.returncode != 0:
                 # handle non-fast-forward by attempting a pull --rebase and retry once
                 output = (push.stderr or push.stdout or "").strip()
                 lowered = output.lower()
                 if "non-fast-forward" in lowered or "rejected" in lowered:
-                    pull = subprocess.run(
-                        ["git", "-C", path, "pull", "--rebase", "origin", "main"],
-                        capture_output=True,
-                        text=True,
-                        env=env,
-                    )
+                    pull = git(["pull", "--rebase", "origin", "main"])
                     if pull.returncode != 0:
                         return False, "git push failed (rebase required)", output + "\n" + (pull.stderr or pull.stdout or "").strip()
-                    retry = subprocess.run(["git", "-C", path, "push", "-u", "origin", "main"], capture_output=True, text=True, env=env)
+                    retry = git(["push", "-u", "origin", "main"])
                     if retry.returncode != 0:
                         return False, "git push failed after rebase", output + "\n" + (retry.stderr or retry.stdout or "").strip()
                     return True, "pushed", retry.stdout.strip() if retry.stdout else ""
@@ -6341,7 +6360,12 @@ class FocusManager(QtWidgets.QMainWindow):
             if not ok:
                 if manual:
                     QtWidgets.QMessageBox.critical(self, "Auto Commit", msg)
-                self.log_debug("VERSIONING", {"autocommit": "failed", "project": proj, "message": msg, "stderr": stderr, "path": path})
+                details = {"autocommit": "failed", "project": proj, "message": msg, "stderr": stderr, "path": path, "remote": self._resolve_repo_url(proj, path)}
+                self.log_debug("VERSIONING", details)
+                try:
+                    self.vcs_output.setPlainText(f"[AutoGIT] {msg}\nPath: {path}\nRemote: {details.get('remote')}\nDetails:\n{stderr or '(none)'}")
+                except Exception:
+                    pass
                 self.finish_operation("Auto commit failed" if manual else "Auto commit idle")
                 return
             if msg == "clean":
