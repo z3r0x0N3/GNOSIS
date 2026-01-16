@@ -6,7 +6,7 @@
   "creation_timestamp": "2026-01-16T01:43:17",
   "preferred_credentials": "Z3R0x0N3",
   "auto_commit_enabled": true,
-  "localsync_enabled": false,
+  "localsync_enabled": true,
   "localsync_path": "/home/null/SINGULARITY-CONSOLE",
   "last_known_commit": "59ec05c066ffbc677da04706e014d7447bd75e1b"
 }
