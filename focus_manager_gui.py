@@ -6219,6 +6219,21 @@ class FocusManager(QtWidgets.QMainWindow):
             return
         result = self.autogit_with_safe_retry(lambda: self.autogit.init_project(path, env=env), path, "Autogit init", env=env)
         self.display_autogit_result("Init", result)
+        # Perform an initial add/commit so subsequent status detects tracked files.
+        try:
+            subprocess.run(["git", "-C", path, "add", "-A"], capture_output=True, text=True, env=env)
+            staged = subprocess.run(["git", "-C", path, "diff", "--cached", "--name-only"], capture_output=True, text=True, env=env)
+            staged_list = staged.stdout.strip() if staged.stdout else ""
+            if staged_list:
+                subprocess.run(
+                    ["git", "-C", path, "commit", "-m", "Initial import"],
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                self.log_debug("VERSIONING", {"autogit": "initial_commit", "path": path, "files": staged_list.splitlines()})
+        except Exception:
+            pass
         self.update_git_status_label(path)
         self.finish_operation("VCS init complete")
         try:
@@ -6248,7 +6263,7 @@ class FocusManager(QtWidgets.QMainWindow):
                     pre = self.autogit.ensure_git_repo(path, env=env)
             if pre.returncode != 0:
                 return False, "git init failed", pre.stderr
-            status = subprocess.run(["git", "-C", path, "status", "--porcelain"], capture_output=True, text=True, env=env)
+            status = subprocess.run(["git", "-C", path, "status", "--porcelain", "-uall"], capture_output=True, text=True, env=env)
             status_out = status.stdout.strip() if status.stdout else ""
             if status.returncode != 0:
                 return False, "git status failed", status.stderr or status.stdout
@@ -6258,7 +6273,9 @@ class FocusManager(QtWidgets.QMainWindow):
             diff = subprocess.run(["git", "-C", path, "diff", "--cached", "--name-only"], capture_output=True, text=True, env=env)
             staged = diff.stdout.strip() if diff.stdout else ""
             if not staged:
-                return True, "clean", status_out
+                # capture untracked after add attempt for debugging
+                untracked = subprocess.run(["git", "-C", path, "ls-files", "--others", "--exclude-standard"], capture_output=True, text=True, env=env)
+                return True, "clean", status_out or (untracked.stdout.strip() if untracked.stdout else "")
             msg = f"{'Manual' if manual else 'Auto'} commit {now_str()}"
             commit = subprocess.run(["git", "-C", path, "commit", "-m", msg], capture_output=True, text=True, env=env)
             commit_out = (commit.stderr or "") + (commit.stdout or "")
