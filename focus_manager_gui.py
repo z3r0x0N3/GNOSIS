@@ -6233,6 +6233,7 @@ class FocusManager(QtWidgets.QMainWindow):
             self.display_autogit_result("Init git", pre)
             self.show_error_banner("git init failed")
             self.finish_operation("VCS init failed")
+            self.log_debug("VERSIONING", {"autogit": "init_failed", "path": path, "stderr": pre.stderr, "stdout": pre.stdout, "rc": pre.returncode})
             return
         result = self.autogit_with_safe_retry(lambda: self.autogit.init_project(path, env=env), path, "Autogit init", env=env)
         self.display_autogit_result("Init", result)
@@ -6242,13 +6243,23 @@ class FocusManager(QtWidgets.QMainWindow):
             staged = subprocess.run(["git", "-C", path, "diff", "--cached", "--name-only"], capture_output=True, text=True, env=env)
             staged_list = staged.stdout.strip() if staged.stdout else ""
             if staged_list:
-                subprocess.run(
+                init_commit = subprocess.run(
                     ["git", "-C", path, "commit", "-m", "Initial import"],
                     capture_output=True,
                     text=True,
                     env=env,
                 )
-                self.log_debug("VERSIONING", {"autogit": "initial_commit", "path": path, "files": staged_list.splitlines()})
+                self.log_debug(
+                    "VERSIONING",
+                    {
+                        "autogit": "initial_commit",
+                        "path": path,
+                        "files": staged_list.splitlines(),
+                        "rc": init_commit.returncode,
+                        "stdout": init_commit.stdout,
+                        "stderr": init_commit.stderr,
+                    },
+                )
         except Exception:
             pass
         self.update_git_status_label(path)
@@ -6279,14 +6290,14 @@ class FocusManager(QtWidgets.QMainWindow):
                 if self.autogit.add_safe_directory(path, reason="autocommit ensure repo", env=env):
                     pre = self.autogit.ensure_git_repo(path, env=env)
             if pre.returncode != 0:
-                return False, "git init failed", pre.stderr
+                return False, "git init failed", (pre.stderr or pre.stdout or "").strip()
             status = subprocess.run(["git", "-C", path, "status", "--porcelain", "-uall"], capture_output=True, text=True, env=env)
             status_out = status.stdout.strip() if status.stdout else ""
             if status.returncode != 0:
-                return False, "git status failed", status.stderr or status.stdout
+                return False, "git status failed", (status.stderr or status.stdout or "").strip()
             add = subprocess.run(["git", "-C", path, "add", "-A"], capture_output=True, text=True, env=env)
             if add.returncode != 0:
-                return False, "git add failed", add.stderr
+                return False, "git add failed", (add.stderr or add.stdout or "").strip()
             diff = subprocess.run(["git", "-C", path, "diff", "--cached", "--name-only"], capture_output=True, text=True, env=env)
             staged = diff.stdout.strip() if diff.stdout else ""
             if not staged:
@@ -6300,14 +6311,14 @@ class FocusManager(QtWidgets.QMainWindow):
                 lowered = commit_out.lower()
                 if "nothing to commit" in lowered or "no changes added to commit" in lowered:
                     return True, "clean", status_out
-                return False, "git commit failed", commit_out
+                return False, "git commit failed", commit_out.strip()
             ok, msg_remote = self.ensure_remote_repo(proj, dry_run=False)
             if not ok:
                 return False, msg_remote, ""
             push = subprocess.run(["git", "-C", path, "push", "-u", "origin", "main"], capture_output=True, text=True, env=env)
             if push.returncode != 0:
-                return False, "git push failed", push.stderr or push.stdout
-            return True, "pushed", ""
+                return False, "git push failed", (push.stderr or push.stdout or "").strip()
+            return True, "pushed", push.stdout.strip() if push.stdout else ""
 
         def on_result(res):
             ok, msg, stderr = res
