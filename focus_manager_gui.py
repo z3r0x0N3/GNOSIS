@@ -6317,7 +6317,23 @@ class FocusManager(QtWidgets.QMainWindow):
                 return False, msg_remote, ""
             push = subprocess.run(["git", "-C", path, "push", "-u", "origin", "main"], capture_output=True, text=True, env=env)
             if push.returncode != 0:
-                return False, "git push failed", (push.stderr or push.stdout or "").strip()
+                # handle non-fast-forward by attempting a pull --rebase and retry once
+                output = (push.stderr or push.stdout or "").strip()
+                lowered = output.lower()
+                if "non-fast-forward" in lowered or "rejected" in lowered:
+                    pull = subprocess.run(
+                        ["git", "-C", path, "pull", "--rebase", "origin", "main"],
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                    )
+                    if pull.returncode != 0:
+                        return False, "git push failed (rebase required)", output + "\n" + (pull.stderr or pull.stdout or "").strip()
+                    retry = subprocess.run(["git", "-C", path, "push", "-u", "origin", "main"], capture_output=True, text=True, env=env)
+                    if retry.returncode != 0:
+                        return False, "git push failed after rebase", output + "\n" + (retry.stderr or retry.stdout or "").strip()
+                    return True, "pushed", retry.stdout.strip() if retry.stdout else ""
+                return False, "git push failed", output
             return True, "pushed", push.stdout.strip() if push.stdout else ""
 
         def on_result(res):
