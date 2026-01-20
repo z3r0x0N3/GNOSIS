@@ -6215,7 +6215,7 @@ class FocusManager(QtWidgets.QMainWindow):
             display_name = f"{name} [REDACTED]" if redacted else name
             name_item = QtWidgets.QTableWidgetItem(display_name)
             name_item.setData(QtCore.Qt.UserRole, name)
-            time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+            time_str = self._format_ui_datetime(datetime.fromtimestamp(mtime))
             time_item = QtWidgets.QTableWidgetItem(time_str)
             origin_item = QtWidgets.QTableWidgetItem(origin_val)
             name_item.setFlags(qt_no_edit(name_item.flags()))
