@@ -18,202 +18,54 @@ features
 
 constraints
 
-architecture
+PROCESS
 
-requirements
+1) Parse the entire document.
 
-assumptions
+2) Derive an ordered, hierarchical task graph covering 100% of the described goals, features, and constraints.
 
-The document may be incomplete, high-level, or abstract.
+3) Each task must include:
+   - A unique id
+   - A clear action statement
+   - Optional dependencies (by id)
+   - Optional acceptance criteria
 
-You must still produce a complete execution plan.
+4) Produce deterministic, internally consistent JSON.
 
-OUTPUT
+OUTPUT (STRICT)
 
-A single valid JSON object
-
-No prose
-
-No Markdown
-
-No comments
-
-No trailing commas
-
-CORE OBJECTIVE
-
-Break the project down into the smallest non-abstract, actionable steps possible, such that:
-
-Each step can be executed by one person
-
-In one continuous session
-
-Without requiring further conceptual decomposition
-
-If a step still contains “and”, “or”, “handle”, “support”, “integrate”, or “etc.”
-→ it is too abstract and must be split further.
-
-MANDATORY HIERARCHY
-
-Every task must be classified into exactly one of the following levels:
-
-PHASE-{P#}
-Large lifecycle segments (e.g. Planning, Core Implementation, Hardening, Release)
-
-OPERATION-{O#}
-Coherent bodies of work within a phase (e.g. UI Framework, State Engine)
-
-FUNCTION-{F#}
-Logical system capabilities (e.g. Focus State Tracking)
-
-JOB-{J#}
-Concrete implementation responsibilities (e.g. Implement focus state file writer)
-
-TASK-{T#}
-Atomic, executable actions (e.g. Create ~/.focused_project file with chmod 600)
-
-IDENTIFIER RULES
-
-Identifiers must be globally unique
-
-Format:
-
-PHASE-1
-OPERATION-1.3
-FUNCTION-1.3.2
-JOB-1.3.2.4
-TASK-1.3.2.4.7
-
-
-Numbers reflect hierarchy and order
-
-Ordering must reflect execution dependency, not document order
-
-JSON SCHEMA (REQUIRED)
 {
-  "project": {
-    "name": "string",
-    "derived_from": "markdown",
-    "assumptions": ["string"]
-  },
-  "phases": [
+  "tasks": [
     {
-      "id": "PHASE-P#",
-      "name": "string",
-      "description": "string",
-      "operations": [
-        {
-          "id": "OPERATION-O#",
-          "name": "string",
-          "functions": [
-            {
-              "id": "FUNCTION-F#",
-              "name": "string",
-              "jobs": [
-                {
-                  "id": "JOB-J#",
-                  "name": "string",
-                  "tasks": [
-                    {
-                      "id": "TASK-T#",
-                      "description": "string",
-                      "inputs": ["string"],
-                      "outputs": ["string"],
-                      "dependencies": ["TASK-T#"],
-                      "failure_modes": ["string"]
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "id": "T1",
+      "title": "...",
+      "description": "...",
+      "dependencies": [],
+      "acceptance_criteria": ["..."],
+      "tags": ["..."],
+      "estimate": "..."
+    }
+  ],
+  "lists": [
+    {
+      "name": "Main",
+      "tasks": ["T1", "T2"],
+      "project": "<project-name-if-provided>"
     }
   ]
 }
 
-DECOMPOSITION RULES (NON-NEGOTIABLE)
-Granularity
+CRITICAL CONSTRAINTS
+────────────────────────────────────────
+- Output MUST be valid JSON
+- Output MUST NOT contain markdown
+- Output MUST NOT contain comments
+- Output MUST NOT contain trailing commas
+- Output MUST NOT contain explanations
+- Output MUST NOT invent external systems unless required by the overview
+- Output MUST be deterministic and internally consistent
 
-A TASK must:
+If information is missing, make the smallest reasonable assumption and
+continue decomposition.
 
-Be executable without interpretation
-
-Produce a concrete change (file, state, config, UI element, data)
-
-Have explicit inputs and outputs
-
-If a task could fail in more than one way → list them.
-
-Dependencies
-
-Every task must list:
-
-all prerequisite TASK IDs
-
-No circular dependencies
-
-If ordering matters, encode it via dependencies
-
-Assumptions
-
-If the Markdown omits required details:
-
-infer them
-
-list them under project.assumptions
-
-Never leave a gap “for later clarification”
-
-Completeness Requirement
-
-Your output must cover:
-
-setup
-
-implementation
-
-validation
-
-error handling
-
-cleanup
-
-documentation (if implied)
-
-testing (even if not mentioned)
-
-If the Markdown says “implement X”, you must include:
-
-design tasks
-
-implementation tasks
-
-verification tasks
-
-failure testing tasks
-
-FAILURE CONDITIONS
-
-Your output is invalid if:
-
-Any TASK is abstract
-
-Any level is skipped
-
-IDs are reused
-
-JSON is malformed
-
-Steps are missing between “idea” and “execution”
-
-The plan could not realistically be followed end-to-end
-
-FINAL INSTRUCTION
-
-You are not writing about the project.
-You are writing the execution skeleton of reality for it.
-
-Produce the JSON.
-Nothing else.
+BEGIN TASK DECOMPOSITION NOW.

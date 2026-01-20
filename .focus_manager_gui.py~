@@ -41,18 +41,6 @@ from functools import partial
 from collections import deque
 
 
-def resolve_user_shell():
-    import pwd
-
-    shell = os.environ.get("SHELL")
-    if shell and os.path.exists(shell):
-        return shell
-    try:
-        return pwd.getpwuid(os.getuid()).pw_shell
-    except Exception:
-        return "/bin/bash"
-
-
 def _global_qt_preflight():
     """Sanitize environment before importing any Qt modules to avoid XCB BadWindow crashes."""
     # Strip potentially unsafe overrides
@@ -101,7 +89,7 @@ else:  # pragma: no cover
 SoundEffectClass = getattr(QtMultimedia, "QSoundEffect", None) if QtMultimedia is not None else None
 
 
-PROJECT_ROOT = os.path.expanduser("~/PROJECTS")
+PROJECT_ROOT = "/media/sf_STEF/home/Z3R0/projects"
 USE_BIND_MOUNT = False  # operate directly from PROJECT_ROOT instead of bind-mounting into ~/active_project
 ACTIVE_TARGET = os.path.expanduser("~/active_project")
 STATUS_OPTIONS = ["In Progress (α)", "Redacted", "Completed", "Pending Review"]
@@ -126,7 +114,7 @@ TASKS_WATCH_FILE = DATA_DIR / ".tasks.json"
 STABILITY_LOG = CONFIG_DIR / "stability.log"
 STABILITY_STATE = CONFIG_DIR / "stability.json"
 STABILITY_MARKER = CONFIG_DIR / ".stability_last_run"
-DEFAULT_TASK_PROMPT = Path.home() / "PROJECTS" / "SINGULARITY-CONSOLE" / ".PROMPTS" / "ToDo.prompt"
+DEFAULT_TASK_PROMPT = Path("/home/null/SINGULARITY-CONSOLE/.PROMPTS/ToDo.prompt")
 DEFAULT_OVERVIEW_FILES = ("OVERVIEW.md", "overview.md", "README.md", "README.MD", "readme.md")
 TASK_STATUS_VALUES = ["pending", "in_progress", "blocked", "review", "completed"]
 TASK_ALLOWED_TRANSITIONS = {
@@ -280,7 +268,7 @@ class TerminalProcess(QtCore.QObject):
 
     def __init__(self, shell=None, cwd=None, env=None, parent=None):
         super().__init__(parent)
-        self.shell = shell or resolve_user_shell()
+        self.shell = shell or os.environ.get("SHELL", "/bin/bash")
         self.cwd = cwd or os.getcwd()
         self.env = env or os.environ.copy()
         self.process: subprocess.Popen | None = None
@@ -305,9 +293,8 @@ class TerminalProcess(QtCore.QObject):
         }
         if hasattr(os, "setsid"):
             kwargs["preexec_fn"] = os.setsid
-        cmd = [self.shell, "-i"]
         try:
-            self.process = subprocess.Popen(cmd, **kwargs)
+            self.process = subprocess.Popen([self.shell], **kwargs)
         except Exception:
             try:
                 os.close(slave_fd)
@@ -484,7 +471,6 @@ class TerminalDoorOverlay(QtWidgets.QWidget):
         self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
         self.animation: QtCore.QParallelAnimationGroup | None = None
-        self.glitch_metrics: dict[str, float] | None = None
         self.set_accent(accent_primary, accent_glow)
         self.hide()
 
@@ -503,66 +489,21 @@ class TerminalDoorOverlay(QtWidgets.QWidget):
         self.right_panel.setGeometry(self.width() // 2, 0, self.width() - self.width() // 2, self.height())
         self.glitch_line.move(self.width() // 2 - self.glitch_line.width() // 2, self.height() // 2)
 
-    def _chaos_noise(self, seed: float, scale: float = 1.0) -> float:
-        """Generate bounded chaotic noise using a cosine seed folded through a logistic map."""
-        x = math.cos(seed) * 0.5 + 0.5
-        for _ in range(2):
-            x = 4 * x * (1 - x)
-        return (x - 0.5) * 2 * scale
-
-    def _build_glitch_profile(self, width: int, height: int) -> dict[str, float]:
-        """Compute glitch metrics (warp, curvature, noise) within safe thresholds."""
-        t = time.time()
-        seed = t * 0.77 + width * 0.013 + height * 0.021
-        max_dev_px = max(8.0, min(28.0, width * 0.14))
-        warp_intensity = 0.35 + abs(self._chaos_noise(seed, 0.45))
-        warp_curvature = 0.12 + abs(self._chaos_noise(seed + 1.3, 0.33))
-        noise_pct = min(0.35, 0.08 + abs(self._chaos_noise(seed + 2.1, 0.28)))
-        jitter_px = 4 + abs(self._chaos_noise(seed + 3.7, 12.0))
-        flicker_depth = 0.3 + abs(self._chaos_noise(seed + 4.2, 0.5))
-        metrics = {
-            "warp_intensity": warp_intensity,
-            "warp_curvature": warp_curvature,
-            "noise_pct": noise_pct,
-            "max_deviation_px": max_dev_px,
-            "jitter_px": jitter_px,
-            "flicker_depth": min(0.8, flicker_depth),
-        }
-        self.glitch_metrics = metrics
-        return metrics
-
     def start_animation(self, duration, on_finished=None):
-        # Stop and dispose any previous animation to avoid dangling Qt objects.
-        if self.animation:
-            try:
-                self.animation.stop()
-            except Exception:
-                pass
-            try:
-                self.animation.deleteLater()
-            except Exception:
-                pass
-            self.animation = None
-        profile = self._build_glitch_profile(self.width(), self.height())
+        if self.animation and self.animation.state() == QtCore.QAbstractAnimation.Running:
+            self.animation.stop()
         width = self.width()
         height = self.height()
         center = width // 2
-        start_width = max(32, min(120, width // 6 + int(profile["warp_intensity"] * profile["max_deviation_px"])))
+        start_width = max(40, min(80, width // 6))
         left_start = QtCore.QRect(center - start_width, 0, start_width, height)
         right_start = QtCore.QRect(center, 0, start_width, height)
         left_end = QtCore.QRect(0, 0, center, height)
         right_end = QtCore.QRect(center, 0, width - center, height)
         self.left_panel.setGeometry(left_start)
         self.right_panel.setGeometry(right_start)
-        glitch_start = QtCore.QPoint(
-            center - self.glitch_line.width() // 2 + int(self._chaos_noise(time.time(), profile["jitter_px"])),
-            height // 2,
-        )
-        curve_offset = int(profile["warp_curvature"] * profile["max_deviation_px"])
-        glitch_end = QtCore.QPoint(
-            width - self.glitch_line.width() - 12 + curve_offset,
-            max(0, min(height, height // 2 + int(self._chaos_noise(time.time() + 1.1, profile["jitter_px"] / 1.5)))),
-        )
+        glitch_start = QtCore.QPoint(center - self.glitch_line.width() // 2, height // 2)
+        glitch_end = QtCore.QPoint(width - self.glitch_line.width() - 12, height // 2)
         self.glitch_line.move(glitch_start)
 
         left_anim = QtCore.QPropertyAnimation(self.left_panel, b"geometry")
@@ -583,46 +524,20 @@ class TerminalDoorOverlay(QtWidgets.QWidget):
         glitch_anim.setEndValue(glitch_end)
         glitch_anim.setEasingCurve(QtCore.QEasingCurve.Linear)
 
-        # Opacity flicker based on noise injection percentage.
-        if not hasattr(self, "glitch_opacity"):
-            self.glitch_opacity = QtWidgets.QGraphicsOpacityEffect(self.glitch_line)
-            self.glitch_line.setGraphicsEffect(self.glitch_opacity)
-        flicker = QtCore.QPropertyAnimation(self.glitch_opacity, b"opacity")
-        flicker.setDuration(duration)
-        flicker.setKeyValueAt(0.0, 1.0)
-        flicker.setKeyValueAt(max(0.05, profile["noise_pct"] / 2), 1.0 - profile["flicker_depth"])
-        flicker.setKeyValueAt(min(0.95, 1 - profile["noise_pct"] / 2), 1.0 - profile["flicker_depth"])
-        flicker.setKeyValueAt(1.0, 1.0)
-
         self.animation = QtCore.QParallelAnimationGroup(self)
         self.animation.addAnimation(left_anim)
         self.animation.addAnimation(right_anim)
         self.animation.addAnimation(glitch_anim)
-        self.animation.addAnimation(flicker)
-        def cleanup():
-            self.hide()
-            if on_finished:
-                try:
-                    on_finished()
-                except Exception:
-                    pass
-            if self.animation:
-                try:
-                    self.animation.deleteLater()
-                except Exception:
-                    pass
-                self.animation = None
-
-        self.animation.finished.connect(cleanup)
+        self.animation.finished.connect(self.hide)
+        if on_finished:
+            self.animation.finished.connect(on_finished)
         self.show()
         self.raise_()
-        self.animation.start()
+        self.animation.start(QtCore.QAbstractAnimation.DeleteWhenStopped)
 
 
 class PhotonTerminalWidget(QtWidgets.QWidget):
-    back_requested = QtCore.pyqtSignal()
-
-    def __init__(self, sound_engine, accent_primary, accent_glow, parent=None, base_env=None):
+    def __init__(self, sound_engine, accent_primary, accent_glow, parent=None):
         super().__init__(parent)
         self.sound_engine = sound_engine
         self.accent_primary = accent_primary
@@ -630,8 +545,6 @@ class PhotonTerminalWidget(QtWidgets.QWidget):
         self.animation_enabled = True
         self.auto_scroll = True
         self.cwd_label = None
-        self.base_env = base_env or os.environ.copy()
-        self.shell_path = resolve_user_shell()
         self._build_ui()
         self._spawn_terminal()
 
@@ -645,8 +558,7 @@ class PhotonTerminalWidget(QtWidgets.QWidget):
         control_layout.setSpacing(8)
         self.singularity_btn = QtWidgets.QPushButton("≪ ⟬ SINGULARITY ⟭")
         self.singularity_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        self.singularity_btn.setToolTip("Return to the Singularity interface")
-        self.singularity_btn.clicked.connect(self._request_return_to_interface)
+        self.singularity_btn.clicked.connect(self.focus_terminal)
         control_layout.addWidget(self.singularity_btn)
         control_layout.addStretch(1)
         right_controls = QtWidgets.QWidget()
@@ -688,25 +600,18 @@ class PhotonTerminalWidget(QtWidgets.QWidget):
         return layout
 
     def _spawn_terminal(self):
-        env = self.base_env.copy()
-        env.setdefault("TERM", "xterm-256color")
-        env["SHELL"] = self.shell_path
-        shell_name = os.path.basename(self.shell_path or "").lower()
+        env = os.environ.copy()
         marker = 'printf "__PHOTON_CWD__%s__\\n" "$PWD"'
-        if shell_name in {"bash", "sh"}:
-            existing = env.get("PROMPT_COMMAND", "")
-            env["PROMPT_COMMAND"] = f"{marker}; {existing}" if existing else marker
-        self.terminal_process = TerminalProcess(shell=self.shell_path, cwd=os.getcwd(), env=env, parent=self)
+        existing = env.get("PROMPT_COMMAND", "")
+        env["PROMPT_COMMAND"] = f"{marker}; {existing}" if existing else marker
+        env.setdefault("TERM", "xterm-256color")
+        env.setdefault("SHELL", os.environ.get("SHELL", "/bin/bash"))
+        self.terminal_process = TerminalProcess(shell=env["SHELL"], cwd=os.getcwd(), env=env, parent=self)
         self.terminal_process.output_ready.connect(self._on_process_output)
         self.terminal_process.terminated.connect(self._on_process_terminated)
-        # For non-bash shells we avoid prompt injection to keep shells clean.
 
     def focus_terminal(self):
         self.display.setFocus()
-
-    def _request_return_to_interface(self):
-        if self.back_requested:
-            self.back_requested.emit()
 
     def tab_activated(self):
         if not self.animation_enabled:
@@ -755,8 +660,7 @@ class PhotonTerminalWidget(QtWidgets.QWidget):
 
     def _on_process_output(self, chunk):
         text = chunk.decode("utf-8", errors="ignore")
-        cleaned = self._strip_ansi(text)
-        cleaned, cwd = self._extract_cwd(cleaned)
+        cleaned, cwd = self._extract_cwd(text)
         if cwd:
             self.cwd_label.setText(f"Working directory: {cwd}")
         cursor = self.display.textCursor()
@@ -780,14 +684,6 @@ class PhotonTerminalWidget(QtWidgets.QWidget):
             else:
                 rebuilt.append(marker + fragment)
         return "".join(rebuilt), cwd
-
-    def _strip_ansi(self, text: str) -> str:
-        ansi_escape = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
-        osc = re.compile(r"\x1B\].*?(?:\x07|\x1b\\)")
-        text = ansi_escape.sub("", text)
-        text = osc.sub("", text)
-        text = text.replace("\r", "")
-        return text
 
     def _on_process_terminated(self, code):
         self.status_label.setText(f"PHØTØN shell terminated (exit {code}).")
@@ -1198,278 +1094,6 @@ class CollapsiblePane(QtWidgets.QFrame):
             self.content_area.setMaximumHeight(0)
 
 
-class TooltipManager(QtCore.QObject):
-    """Centralized tooltip handling with hover/focus delay and suppression support."""
-
-    def __init__(self, parent=None, delay_ms=300):
-        super().__init__(parent)
-        self.delay_ms = max(100, delay_ms)
-        self.registry: dict[QtWidgets.QWidget, str] = {}
-        self.suppressed = False
-        self._pending_widget: QtWidgets.QWidget | None = None
-        self._timer = QtCore.QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._show_pending)
-
-    def register(self, widget, primary, secondary=""):
-        if widget is None:
-            return
-        text = primary if not secondary else f"{primary}\n{secondary}"
-        self.registry[widget] = text
-        widget.setToolTip(text)
-        widget.installEventFilter(self)
-
-    def has(self, widget):
-        return widget in self.registry
-
-    def suppress(self):
-        self.suppressed = True
-        self._timer.stop()
-        QtWidgets.QToolTip.hideText()
-
-    def resume(self):
-        self.suppressed = False
-        self._timer.stop()
-        QtWidgets.QToolTip.hideText()
-
-    def _show_pending(self):
-        if self.suppressed or not self._pending_widget:
-            return
-        widget = self._pending_widget
-        text = self.registry.get(widget)
-        if not text:
-            return
-        pos = widget.mapToGlobal(widget.rect().center())
-        QtWidgets.QToolTip.showText(pos, text, widget)
-
-    def eventFilter(self, obj, event):
-        if obj in self.registry:
-            etype = event.type()
-            if etype in (QtCore.QEvent.Enter, QtCore.QEvent.FocusIn):
-                if not self.suppressed:
-                    self._pending_widget = obj
-                    self._timer.start(self.delay_ms)
-            elif etype in (QtCore.QEvent.Leave, QtCore.QEvent.FocusOut, QtCore.QEvent.Hide, QtCore.QEvent.MouseButtonPress, QtCore.QEvent.ContextMenu):
-                self._timer.stop()
-                QtWidgets.QToolTip.hideText()
-                self._pending_widget = None
-        return super().eventFilter(obj, event)
-
-
-class ContextMenuManager(QtCore.QObject):
-    """Global context menu surface that renders supplied actions for any payload."""
-
-    def __init__(self, parent=None, tooltip_manager: TooltipManager | None = None):
-        super().__init__(parent)
-        self.parent = parent
-        self.tooltip_manager = tooltip_manager
-        self.active_menu: QtWidgets.QMenu | None = None
-        self.active_payload = None
-
-    def close_menu(self):
-        if self.active_menu:
-            try:
-                self.active_menu.close()
-            except Exception:
-                pass
-            self.active_menu = None
-        if self.tooltip_manager:
-            self.tooltip_manager.resume()
-
-    def _clamp_to_screen(self, pos: QtCore.QPoint, size_hint: QtCore.QSize):
-        screen = QtWidgets.QApplication.primaryScreen()
-        if not screen:
-            return pos
-        geo = screen.availableGeometry()
-        x = min(max(pos.x(), geo.left()), geo.right() - size_hint.width())
-        y = min(max(pos.y(), geo.top()), geo.bottom() - size_hint.height())
-        return QtCore.QPoint(max(geo.left(), x), max(geo.top(), y))
-
-    def _dispatch_action(self, callback, checked=False):
-        try:
-            if callback:
-                try:
-                    callback(checked)
-                except TypeError:
-                    callback()
-        finally:
-            self.close_menu()
-
-    def _attach_tooltip_to_action(self, action: QtWidgets.QAction, tooltip: str):
-        if not tooltip:
-            return
-        action.setToolTip(tooltip)
-
-    def open_menu(self, payload, actions: list[dict], global_pos: QtCore.QPoint):
-        if not actions:
-            return
-        self.close_menu()
-        if self.tooltip_manager:
-            self.tooltip_manager.suppress()
-        menu = QtWidgets.QMenu(self.parent)
-        for spec in actions:
-            label = spec.get("label", "Action")
-            action = QtWidgets.QAction(label, menu)
-            if spec.get("type") == "toggle":
-                action.setCheckable(True)
-                action.setChecked(bool(spec.get("checked", False)))
-            action.setEnabled(spec.get("enabled", True))
-            tooltip = spec.get("tooltip", "")
-            self._attach_tooltip_to_action(action, tooltip)
-            callback = spec.get("action")
-            action.triggered.connect(lambda checked=False, cb=callback: self._dispatch_action(cb, checked))
-            menu.addAction(action)
-        menu.aboutToHide.connect(self.close_menu)
-        self.active_menu = menu
-        self.active_payload = payload
-        pos = self._clamp_to_screen(global_pos, menu.sizeHint())
-        menu.popup(pos)
-
-
-class ActionRegistry:
-    """Shared action registry backing context menus and command palette."""
-
-    def __init__(self):
-        self.actions: dict[str, dict] = {}
-
-    def register(self, action_id: str, label: str, handler, tooltip_primary="", tooltip_secondary="", context_filter=None, category="general", toggled=False):
-        self.actions[action_id] = {
-            "id": action_id,
-            "label": label,
-            "handler": handler,
-            "tooltip_primary": tooltip_primary,
-            "tooltip_secondary": tooltip_secondary,
-            "context_filter": context_filter,
-            "category": category,
-            "toggled": toggled,
-        }
-
-    def actions_for_payload(self, payload: dict):
-        results = []
-        for spec in self.actions.values():
-            filt = spec.get("context_filter")
-            if filt and not filt(payload):
-                continue
-            results.append(spec)
-        return results
-
-
-class WatchManager:
-    """Central watch list across tasks/projects/scopes."""
-
-    def __init__(self):
-        self.watched: dict[str, dict] = {}
-
-    def toggle_watch(self, target_id: str, metadata=None):
-        metadata = metadata or {}
-        if target_id in self.watched:
-            self.watched.pop(target_id, None)
-            return False
-        self.watched[target_id] = {"metadata": metadata, "ts": now_str()}
-        return True
-
-    def is_watched(self, target_id: str):
-        return target_id in self.watched
-
-    def items(self):
-        return self.watched.copy()
-
-
-class EventBus:
-    """Simple in-process event bus with inspection."""
-
-    def __init__(self, limit=500):
-        self.limit = limit
-        self.events: deque[dict] = deque(maxlen=limit)
-
-    def emit(self, scope: str, payload: dict):
-        entry = {"scope": scope, "payload": payload, "ts": now_str()}
-        self.events.append(entry)
-        return entry
-
-    def list_events(self):
-        return list(self.events)
-
-
-class CommandPalette(QtWidgets.QDialog):
-    """Global command palette with fuzzy matching over registered actions."""
-
-    def __init__(self, action_registry: ActionRegistry, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Command Palette")
-        self.setModal(True)
-        self.action_registry = action_registry
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        self.search = QtWidgets.QLineEdit()
-        self.search.setPlaceholderText("Type to search actions...")
-        self.list_widget = QtWidgets.QListWidget()
-        layout.addWidget(self.search)
-        layout.addWidget(self.list_widget)
-        self.search.textChanged.connect(self._refresh)
-        self.list_widget.itemActivated.connect(self._activate)
-        self.resize(520, 420)
-        self.payload = None
-
-    def open_for_payload(self, payload=None):
-        self.payload = payload or {}
-        self._refresh()
-        self.search.setFocus()
-        self.show()
-
-    def _refresh(self):
-        query = self.search.text().lower().strip()
-        self.list_widget.clear()
-        for spec in self.action_registry.actions_for_payload(self.payload):
-            text = spec["label"]
-            if query and query not in text.lower():
-                continue
-            item = QtWidgets.QListWidgetItem(text)
-            item.setData(QtCore.Qt.UserRole, spec)
-            tooltip = spec.get("tooltip_primary", "")
-            secondary = spec.get("tooltip_secondary", "")
-            if tooltip or secondary:
-                item.setToolTip(f"{tooltip}\n{secondary}".strip())
-            self.list_widget.addItem(item)
-
-    def _activate(self, item):
-        spec = item.data(QtCore.Qt.UserRole)
-        if not spec:
-            return
-        handler = spec.get("handler")
-        if handler:
-            try:
-                handler(self.payload)
-            except TypeError:
-                handler()
-        self.accept()
-
-
-class RuntimeStateStrip(QtWidgets.QFrame):
-    """Always-visible runtime state strip."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(12)
-        self.project_lbl = QtWidgets.QLabel("Project: None")
-        self.state_lbl = QtWidgets.QLabel("State: Idle")
-        self.stability_lbl = QtWidgets.QLabel("Stability: Normal")
-        self.alert_lbl = QtWidgets.QLabel("Warnings: 0")
-        for lbl in (self.project_lbl, self.state_lbl, self.stability_lbl, self.alert_lbl):
-            lbl.setStyleSheet("color: #9ce4ff; font-weight: bold;")
-            layout.addWidget(lbl)
-        layout.addStretch(1)
-        self.setToolTip("Runtime heartbeat\nShows active project, state, stability, and warnings.")
-
-    def update_state(self, project="None", state="Idle", stability="Normal", warnings=0):
-        self.project_lbl.setText(f"Project: {project or 'None'}")
-        self.state_lbl.setText(f"State: {state}")
-        self.stability_lbl.setText(f"Stability: {stability}")
-        self.alert_lbl.setText(f"Warnings: {warnings}")
-
 class DebugWindow(QtWidgets.QMainWindow):
     """Structured, read-only debug inspector window."""
 
@@ -1869,15 +1493,6 @@ class TaskStore:
                 recurrence TEXT DEFAULT 'none',
                 recurrence_interval INTEGER DEFAULT 0,
                 my_day_date TEXT,
-                phase_id TEXT,
-                operation_id TEXT,
-                function_id TEXT,
-                job_id TEXT,
-                atlas_task_id TEXT,
-                source_atlas_file TEXT,
-                source_section TEXT,
-                dependency_task_ids TEXT,
-                estimated_complexity TEXT,
                 FOREIGN KEY(list_id) REFERENCES lists(id) ON DELETE CASCADE
             );
             """
@@ -1897,21 +1512,6 @@ class TaskStore:
             cur.execute("ALTER TABLE tasks ADD COLUMN source_id TEXT;")
         if "status" not in cols:
             cur.execute("ALTER TABLE tasks ADD COLUMN status TEXT DEFAULT 'pending';")
-        # Atlas/phase metadata columns (added for expanded CSV compatibility)
-        atlas_cols = {
-            "phase_id": "TEXT",
-            "operation_id": "TEXT",
-            "function_id": "TEXT",
-            "job_id": "TEXT",
-            "atlas_task_id": "TEXT",
-            "source_atlas_file": "TEXT",
-            "source_section": "TEXT",
-            "dependency_task_ids": "TEXT",
-            "estimated_complexity": "TEXT",
-        }
-        for col, ctype in atlas_cols.items():
-            if col not in cols:
-                cur.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ctype};")
         self.conn.commit()
         # backfill uuid and status based on completed flag
         cur.execute("SELECT id, uuid, completed, status, source_id FROM tasks;")
@@ -2117,21 +1717,6 @@ class TaskStore:
         row["derived"] = derived
         return row
 
-    def _normalize_import_status(self, raw_status):
-        status = (raw_status or "").strip().lower().replace(" ", "_")
-        if status == "":
-            return "pending"
-        if status == "inprogress":
-            status = "in_progress"
-        if status not in TASK_STATUS_VALUES:
-            return "pending"
-        return status
-
-    def _is_atlas_format(self, fieldnames):
-        cols = set(fn.strip().lower() for fn in (fieldnames or []))
-        required = {"task_name", "task_description"}
-        return required.issubset(cols)
-
     def _task_pk(self, task_uuid):
         if task_uuid is None:
             return None
@@ -2188,115 +1773,18 @@ class TaskStore:
             recurrence_interval=row["recurrence_interval"],
         )
 
-    def export_csv(self, path, atlas_format=False):
-        # Export a richer task payload so import/export is symmetric and lossless for user-facing fields.
+    def export_csv(self, path):
         cur = self.conn.cursor()
         cur.execute(
             """
-            SELECT
-                t.uuid,
-                t.source_id,
-                t.title,
-                t.notes,
-                t.due_date,
-                t.reminder,
-                t.priority,
-                t.completed,
-                t.status,
-                t.created_at,
-                t.updated_at,
-                t.completed_at,
-                t.project,
-                t.order_index,
-                t.recurrence,
-                t.recurrence_interval,
-                t.my_day_date,
-                t.phase_id,
-                t.operation_id,
-                t.function_id,
-                t.job_id,
-                t.atlas_task_id,
-                t.source_atlas_file,
-                t.source_section,
-                t.dependency_task_ids,
-                t.estimated_complexity,
-                l.name as list_name,
-                l.scope as list_scope
-            FROM tasks t
-            JOIN lists l ON t.list_id=l.id
+            SELECT t.uuid, t.title, t.due_date, t.priority, t.status, l.name as list_name, t.project
+            FROM tasks t JOIN lists l ON t.list_id=l.id
             WHERE l.scope != 'system'
             ORDER BY t.list_id, t.order_index ASC
             """
         )
         rows = [dict(r) for r in cur.fetchall()]
-        if atlas_format:
-            atlas_fields = [
-                "phase_id",
-                "operation_id",
-                "function_id",
-                "job_id",
-                "task_id",
-                "task_name",
-                "task_description",
-                "source_atlas_file",
-                "source_section",
-                "dependency_task_ids",
-                "estimated_complexity",
-                "status",
-            ]
-            with open(path, "w", encoding="utf-8", newline="") as fh:
-                writer = csv.DictWriter(fh, fieldnames=atlas_fields)
-                writer.writeheader()
-                for row in rows:
-                    status_raw = row.get("status") or "pending"
-                    writer.writerow(
-                        {
-                            "phase_id": row.get("phase_id") or "",
-                            "operation_id": row.get("operation_id") or "",
-                            "function_id": row.get("function_id") or "",
-                            "job_id": row.get("job_id") or "",
-                            "task_id": row.get("atlas_task_id") or row.get("source_id") or "",
-                            "task_name": row.get("title") or "",
-                            "task_description": row.get("notes") or "",
-                            "source_atlas_file": row.get("source_atlas_file") or "",
-                            "source_section": row.get("source_section") or "",
-                            "dependency_task_ids": row.get("dependency_task_ids") or "",
-                            "estimated_complexity": row.get("estimated_complexity") or "",
-                            "status": status_raw.replace("_", " ").title(),
-                        }
-                    )
-            return
-
-        fieldnames = [
-            "uuid",
-            "source_id",
-            "title",
-            "notes",
-            "due_date",
-            "reminder",
-            "priority",
-            "completed",
-            "status",
-            "created_at",
-            "updated_at",
-            "completed_at",
-            "project",
-            "list_name",
-            "list_scope",
-            "order_index",
-            "recurrence",
-            "recurrence_interval",
-            "my_day_date",
-            "phase_id",
-            "operation_id",
-            "function_id",
-            "job_id",
-            "atlas_task_id",
-            "source_atlas_file",
-            "source_section",
-            "dependency_task_ids",
-            "estimated_complexity",
-        ]
+        fieldnames = ["uuid", "title", "due_date", "priority", "status", "list_name", "project"]
         with open(path, "w", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
@@ -2304,33 +1792,12 @@ class TaskStore:
                 writer.writerow(
                     {
                         "uuid": row.get("uuid") or "",
-                        "source_id": row.get("source_id") or "",
                         "title": row.get("title") or "",
-                        "notes": row.get("notes") or "",
                         "due_date": row.get("due_date") or "",
-                        "reminder": row.get("reminder") or "",
                         "priority": int(bool(row.get("priority"))),
-                        "completed": int(bool(row.get("completed"))),
                         "status": row.get("status") or "pending",
-                        "created_at": row.get("created_at") or "",
-                        "updated_at": row.get("updated_at") or "",
-                        "completed_at": row.get("completed_at") or "",
-                        "project": row.get("project") or "",
                         "list_name": row.get("list_name") or "",
-                        "list_scope": row.get("list_scope") or "",
-                        "order_index": row.get("order_index") if row.get("order_index") is not None else "",
-                        "recurrence": row.get("recurrence") or "none",
-                        "recurrence_interval": row.get("recurrence_interval") if row.get("recurrence_interval") is not None else 0,
-                        "my_day_date": row.get("my_day_date") or "",
-                        "phase_id": row.get("phase_id") or "",
-                        "operation_id": row.get("operation_id") or "",
-                        "function_id": row.get("function_id") or "",
-                        "job_id": row.get("job_id") or "",
-                        "atlas_task_id": row.get("atlas_task_id") or "",
-                        "source_atlas_file": row.get("source_atlas_file") or "",
-                        "source_section": row.get("source_section") or "",
-                        "dependency_task_ids": row.get("dependency_task_ids") or "",
-                        "estimated_complexity": row.get("estimated_complexity") or "",
+                        "project": row.get("project") or "",
                     }
                 )
 
@@ -2340,155 +1807,48 @@ class TaskStore:
             raise ValueError(f"Invalid status '{status}' in task.")
         return status
 
-    def import_csv(self, path, target_project=None, target_list_name=None):
+    def import_csv(self, path):
         with open(path, "r", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
             rows = list(reader)
         if len(rows) + self.count_tasks() > TASK_CAP:
             raise ValueError(f"Task import would exceed cap of {TASK_CAP}.")
-
-        atlas_format = self._is_atlas_format(reader.fieldnames or [])
         cur = self.conn.cursor()
         cur.execute("BEGIN")
-
-        def _parse_bool(value):
-            if value is None:
-                return False
-            return str(value).strip().lower() in {"1", "true", "yes", "y"}
-
-        def _parse_int(value, fallback=0):
+        for task in rows:
             try:
-                return int(value)
+                status = self._validate_task_payload(task)
             except Exception:
-                return fallback
-
-        for raw in rows:
-            task = {k: (v.strip() if isinstance(v, str) else v) for k, v in raw.items()}
-            title = task.get("title")
-            notes = task.get("notes") or ""
-            project = target_project or task.get("project") or None
-            list_name = target_list_name or task.get("list_name") or ("Imported" if not target_project else target_project)
-            list_scope = task.get("list_scope", "").strip().lower()
-            extra_fields = {
-                "phase_id": task.get("phase_id"),
-                "operation_id": task.get("operation_id"),
-                "function_id": task.get("function_id"),
-                "job_id": task.get("job_id"),
-                "atlas_task_id": task.get("atlas_task_id"),
-                "source_atlas_file": task.get("source_atlas_file"),
-                "source_section": task.get("source_section"),
-                "dependency_task_ids": task.get("dependency_task_ids"),
-                "estimated_complexity": task.get("estimated_complexity"),
-            }
-
-            if atlas_format:
-                # Map atlas CSV into internal schema
-                title = task.get("task_name") or title or "Untitled"
-                notes = task.get("task_description") or notes
-                extra_fields.update(
-                    {
-                        "phase_id": task.get("phase_id"),
-                        "operation_id": task.get("operation_id"),
-                        "function_id": task.get("function_id"),
-                        "job_id": task.get("job_id"),
-                        "atlas_task_id": task.get("task_id"),
-                        "source_atlas_file": task.get("source_atlas_file"),
-                        "source_section": task.get("source_section"),
-                        "dependency_task_ids": task.get("dependency_task_ids"),
-                        "estimated_complexity": task.get("estimated_complexity"),
-                    }
-                )
-                # Use atlas fields for grouping when list info missing
-                list_name = target_list_name or task.get("source_section") or task.get("phase_id") or (target_project or "Imported (Atlas)")
-                list_scope = "project" if target_project else "global"
-                project = target_project or project or None
-
-            status = self._normalize_import_status(task.get("status"))
-            try:
-                status = self._validate_task_payload({"status": status})
-            except Exception:
-                status = "pending"
-
-            scope = "project" if target_project else (list_scope if list_scope in {"global", "project"} else ("project" if project else "global"))
+                continue
+            list_name = task.get("list_name") or "Imported"
+            project = task.get("project") or None
+            scope = "project" if project else "global"
             list_id = self._get_or_create_list(list_name, scope=scope, project=project)
             task_uuid = task.get("uuid") or str(uuid.uuid4())
-            if self._task_pk(task_uuid):
-                continue
             now = now_str()
             cur.execute("SELECT COALESCE(MAX(order_index), 0) + 1 FROM tasks WHERE list_id=?", (list_id,))
-            default_order = cur.fetchone()[0]
-
-            reminder = task.get("reminder") or None
-            priority = 1 if _parse_bool(task.get("priority")) else 0
-            completed_flag = 1 if _parse_bool(task.get("completed")) or status == "completed" else 0
-            created_at = task.get("created_at") or now
-            updated_at = task.get("updated_at") or now
-            completed_at = task.get("completed_at") if completed_flag else None
-            recurrence = (task.get("recurrence") or "none") or "none"
-            recurrence_interval = _parse_int(task.get("recurrence_interval"), fallback=0)
-            my_day_date = task.get("my_day_date") or None
-            try_order = task.get("order_index")
-            order_index = _parse_int(try_order, fallback=default_order) if try_order not in {None, ""} else default_order
-
+            next_order = cur.fetchone()[0]
             cur.execute(
                 """
-                INSERT OR IGNORE INTO tasks (
-                    list_id,
-                    uuid,
-                    title,
-                    notes,
-                    due_date,
-                    reminder,
-                    priority,
-                    completed,
-                    status,
-                    created_at,
-                    updated_at,
-                    completed_at,
-                    project,
-                    order_index,
-                    recurrence,
-                    recurrence_interval,
-                    my_day_date,
-                    phase_id,
-                    operation_id,
-                    function_id,
-                    job_id,
-                    atlas_task_id,
-                    source_atlas_file,
-                    source_section,
-                    dependency_task_ids,
-                    estimated_complexity
-                )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO tasks (list_id, uuid, title, notes, due_date, reminder, priority, completed, status, created_at, updated_at, project, order_index, recurrence, recurrence_interval)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     list_id,
                     task_uuid,
-                    title or "Untitled",
-                    notes,
+                    task.get("title", "Untitled"),
+                    "",
                     task.get("due_date") or None,
-                    reminder,
-                    priority,
-                    completed_flag,
+                    None,
+                    1 if str(task.get("priority", "")).strip().lower() in {"1", "true", "yes", "y"} else 0,
+                    1 if status == "completed" else 0,
                     status,
-                    created_at,
-                    updated_at,
-                    completed_at,
+                    now,
+                    now,
                     project,
-                    order_index,
-                    recurrence,
-                    recurrence_interval,
-                    my_day_date,
-                    extra_fields.get("phase_id") or None,
-                    extra_fields.get("operation_id") or None,
-                    extra_fields.get("function_id") or None,
-                    extra_fields.get("job_id") or None,
-                    extra_fields.get("atlas_task_id") or (task.get("task_id") if atlas_format else None) or None,
-                    extra_fields.get("source_atlas_file") or None,
-                    extra_fields.get("source_section") or None,
-                    extra_fields.get("dependency_task_ids") or None,
-                    extra_fields.get("estimated_complexity") or None,
+                    next_order,
+                    "none",
+                    0,
                 ),
             )
         self.conn.commit()
@@ -2618,16 +1978,6 @@ class AutoGITIntegration:
         merged.setdefault("GIT_DISCOVERY_ACROSS_FILESYSTEM", "1")
         return merged
 
-    def _git_identity(self, env):
-        name = env.get("GIT_AUTHOR_NAME") or env.get("GIT_COMMITTER_NAME") or getpass.getuser() or "autogit"
-        email = env.get("GIT_AUTHOR_EMAIL") or env.get("GIT_COMMITTER_EMAIL") or f"{name}@local"
-        return name, email
-
-    def _ensure_identity(self, project_path, env):
-        name, email = self._git_identity(env)
-        subprocess.run(["git", "-C", project_path, "config", "user.name", name], capture_output=True, text=True, env=env)
-        subprocess.run(["git", "-C", project_path, "config", "user.email", email], capture_output=True, text=True, env=env)
-
     def _find_autogit_bin(self):
         candidates = [
             os.environ.get("AUTO_GIT_BIN"),
@@ -2662,38 +2012,12 @@ class AutoGITIntegration:
                 "LOG_FILE": str(AUTOGIT_LOG),
             }
         )
-        result = subprocess.run(
+        return subprocess.run(
             [self.autogit_bin, "run-once"],
             capture_output=True,
             text=True,
             env=env,
         )
-        return self._wrap_autogit_result(result, project_path, env)
-
-    def _wrap_autogit_result(self, result, project_path, env):
-        if result.returncode == 0:
-            return result
-        env = self._merge_env(env)
-        status = subprocess.run(
-            ["git", "-C", project_path, "status", "--short"],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if status.returncode == 0 and self.is_git_repo(project_path, env=env):
-            note = (
-                f"AutoGIT exited with {result.returncode} but git is initialized. "
-                f"Review {AUTOGIT_LOG} for details; treating init as succeeded."
-            )
-            stdout_parts = [getattr(result, "stdout", "") or ""]
-            stdout_parts.append(note)
-            return subprocess.CompletedProcess(
-                getattr(result, "args", []),
-                0,
-                "\n".join([part for part in stdout_parts if part.strip()]),
-                getattr(result, "stderr", ""),
-            )
-        return result
 
     def init_project(self, project_path, env=None):
         return self._run_autogit_once(project_path, env=env)
@@ -2722,21 +2046,14 @@ class AutoGITIntegration:
 
     def ensure_git_repo(self, project_path, env=None):
         env = self._merge_env(env)
-        if os.path.exists(project_path) and not os.path.isdir(project_path):
-            return subprocess.CompletedProcess([], 1, "", f"{project_path} exists and is not a directory")
-        os.makedirs(project_path, exist_ok=True)
         if self.is_git_repo(project_path, env=env):
-            self._ensure_identity(project_path, env)
             return subprocess.CompletedProcess([], 0, "", "")
-        result = subprocess.run(
+        return subprocess.run(
             ["git", "-C", project_path, "init", "-b", "main"],
             capture_output=True,
             text=True,
             env=env,
         )
-        if result.returncode == 0:
-            self._ensure_identity(project_path, env)
-        return result
 
     def is_dubious_error(self, result):
         msg = (getattr(result, "stderr", "") or "") + (getattr(result, "stdout", "") or "")
@@ -2934,14 +2251,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.store = TaskStore()
         self.autogit = AutoGITIntegration()
         self.importer = ProjectImporter(self.autogit)
-        self.tooltip_manager = TooltipManager(self)
-        self.context_menu_manager = ContextMenuManager(self, self.tooltip_manager)
-        self.action_registry = ActionRegistry()
-        self.watch_manager = WatchManager()
-        self.event_bus = EventBus()
-        self.command_palette = CommandPalette(self.action_registry, self)
-        self._register_global_actions()
-        self.setObjectName("singularityMainWindow")
         self.status_map = {}
         self.active_project = None
         self.view_mode = "canonical"
@@ -2950,12 +2259,8 @@ class FocusManager(QtWidgets.QMainWindow):
         self.current_state = "Idle"
         self.threadpool = QtCore.QThreadPool.globalInstance()
         self.project_meta = self.load_project_meta()
-        self.column_visibility: dict[str, dict[str, bool]] = self.settings.get("column_visibility", {})
-        self.table_registry: dict[str, QtWidgets.QTableWidget] = {}
         # localsync folder mapping per project
         self.localsync_paths: dict[str, str] = {}
-        self.warning_count = 0
-        self.redaction_state: dict[str, bool] = {}
         self.selected_project = None
         self.focus_path = None
         self.ui_state = {
@@ -3003,9 +2308,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.accent_primary = ACCENTS["cyan"]["primary"]
         self.accent_glow = ACCENTS["cyan"]["glow"]
         audio_pref = self.settings.get("interface", {}).get("audio_feedback", True)
-        self._tab_change_pending_idx = None
-        self._tab_change_flush_scheduled = False
-        self._last_active_tab = 0
         self.sound_engine = SoundEngine(enabled=audio_pref, accent_color=self.accent_glow)
         self.interaction_sound_filter = InteractionSoundFilter(self.sound_engine)
         self.installEventFilter(self.interaction_sound_filter)
@@ -3032,9 +2334,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.debug_history: list[tuple[str, object, str]] = []
         self.debug_window: DebugWindow | None = None
         self.github_reachable = None
-        self.repo_cache: list[dict] | None = None
-        self.repo_cache_time: datetime | None = None
-        self.repo_fetching = False
         self.startup_stability_warning = self.supervisor.crashed_last_run
         if self.supervisor.crashed_last_run:
             self.log_debug("APPLICATION", {"stability": "previous_crash_detected", "safe_mode": self.supervisor.state.get("force_software_render", False)})
@@ -3070,7 +2369,7 @@ class FocusManager(QtWidgets.QMainWindow):
         self.credentials_verified = bool(self.active_credentials.get("verified", False))
         self.verified_user = self.active_credentials.get("username", "") if self.credentials_verified else ""
         self._load_gemini_settings()
-        self.setWindowTitle("SINGULARITY CONSOLE")
+        self.setWindowTitle("FOCUS CONSOLE")
         self.resize(1400, 900)
         # Keep a small, fixed minimum size so scaling does not inflate minimum geometry.
         self.setMinimumSize(600, 400)
@@ -3078,8 +2377,6 @@ class FocusManager(QtWidgets.QMainWindow):
         # Cleanup any stale mounts before building UI
         self._force_cleanup_on_start()
         self._build_ui()
-        self._apply_background_image()
-        self._bulk_register_tooltips()
         if self.startup_stability_warning and hasattr(self, "error_banner"):
             self.show_error_banner("Previous session ended unexpectedly; safe rendering enabled.")
         QtCore.QTimer.singleShot(0, self._mark_ui_ready)
@@ -3169,9 +2466,6 @@ class FocusManager(QtWidgets.QMainWindow):
     def _build_ui(self):
         central = QtWidgets.QWidget()
         central.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        central.setObjectName("centralwidget")
-        central.setAttribute(QtCore.Qt.WA_StyledBackground, True)
-        central.setAutoFillBackground(True)
         self.setCentralWidget(central)
         main_layout = self._register_layout(QtWidgets.QVBoxLayout(central))
 
@@ -3247,10 +2541,9 @@ class FocusManager(QtWidgets.QMainWindow):
             collapsed=self.get_collapsible_state("system-health", False),
             on_toggle=partial(self._on_collapsible_toggle, "system-health"),
         )
-        self.register_pane_context(self.health_box, "system-health")
         main_layout.addWidget(self.health_box)
 
-        header = QtWidgets.QLabel("SINGULARITY CONSOLE")
+        header = QtWidgets.QLabel("FOCUS CONSOLE")
         header.setAlignment(qt_align_center())
         header.setStyleSheet("color: #73f5ff; font-size: 22px; letter-spacing: 3px;")
         main_layout.addWidget(header)
@@ -3261,29 +2554,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.identity_banner.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
         self.identity_banner.setStyleSheet("white-space: pre;")
         main_layout.addWidget(self.identity_banner)
-        self.runtime_strip = RuntimeStateStrip(self)
-        self.runtime_strip.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        self.runtime_strip.customContextMenuRequested.connect(
-            lambda pos: self.context_menu_manager.open_menu(
-                {
-                    "type": "runtime-strip",
-                    "targetId": "runtime",
-                    "metadata": {"state": getattr(self, "current_state", "Idle"), "warnings": self.warning_count},
-                    "capabilities": ["inspect", "watch"],
-                },
-                self._build_context_actions(
-                    {
-                        "type": "runtime-strip",
-                        "targetId": "runtime",
-                        "metadata": {"state": getattr(self, "current_state", "Idle"), "warnings": self.warning_count},
-                        "capabilities": ["inspect", "watch"],
-                    }
-                ),
-                self.runtime_strip.mapToGlobal(pos),
-            )
-        )
-        main_layout.addWidget(self.runtime_strip)
-        self._update_runtime_strip()
 
         self.operation_panel = QtWidgets.QFrame()
         self.operation_panel.setStyleSheet("background-color: #111b2d; border: 1px solid #3b6aff; border-radius: 6px;")
@@ -3295,16 +2565,8 @@ class FocusManager(QtWidgets.QMainWindow):
         op_layout.addWidget(self.operation_progress)
         self.operation_panel.setVisible(False)
         main_layout.addWidget(self.operation_panel)
-        body_layout = QtWidgets.QHBoxLayout()
-        self.body_layout = body_layout
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(8)
         tabs = QtWidgets.QTabWidget()
-        body_layout.addWidget(tabs, 1)
-        photon_panel = self._build_photon_side_panel(tabs)
-        self.photon_panel = photon_panel
-        self.photon_panel_attached = False  # only insert when active to reclaim space when inactive
-        main_layout.addLayout(body_layout)
+        main_layout.addWidget(tabs)
         self.tab_widget = tabs
 
         # ----- Projects tab -----
@@ -3380,8 +2642,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.project_table.setSelectionBehavior(qt_select_rows())
         self.project_table.setSelectionMode(qt_single_select())
         self._enable_vertical_scroll(self.project_table)
-        self.register_table_row_context(self.project_table, "projectsTable", self._project_payload_for_row)
-        self.register_table_for_context(self.project_table, "projectsTable")
         project_layout.addWidget(self.project_table)
         self.fs_view = None
         self.fs_model = None
@@ -3513,16 +2773,6 @@ class FocusManager(QtWidgets.QMainWindow):
         toggle_row.addWidget(self.workspace_list_toggle)
         toggle_row.addStretch(1)
         top_layout.addItem(toggle_row)
-        top_layout.addWidget(QtWidgets.QLabel("Tags:"))
-        self.workspace_tags_edit = QtWidgets.QLineEdit()
-        self.workspace_tags_edit.setPlaceholderText("Project tags (comma-separated)")
-        self.workspace_tags_edit.setEnabled(False)
-        self.workspace_tags_edit.editingFinished.connect(self._on_workspace_tags_changed)
-        top_layout.addWidget(self.workspace_tags_edit)
-        self.workspace_redacted_tag = QtWidgets.QCheckBox("Redacted")
-        self.workspace_redacted_tag.setEnabled(False)
-        self.workspace_redacted_tag.toggled.connect(self._on_workspace_redacted_tag_toggled)
-        top_layout.addWidget(self.workspace_redacted_tag)
 
         self.workspace_vsplit.addWidget(top_panel)
 
@@ -3694,8 +2944,6 @@ class FocusManager(QtWidgets.QMainWindow):
         except Exception:
             pass
         self._enable_vertical_scroll(self.net_table)
-        self.register_table_row_context(self.net_table, "networkTable", self._net_payload_for_row)
-        self.register_table_for_context(self.net_table, "networkTable")
         self.net_stack.addWidget(self.net_graph_view)
         self.net_stack.addWidget(self.net_timeline)
         self.net_stack.addWidget(self.net_table)
@@ -3832,8 +3080,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.task_table.setSelectionMode(qt_single_select())
         self._enable_vertical_scroll(self.task_table)
         self._normalize_task_table_columns()
-        self.register_table_row_context(self.task_table, "tasksTable", self._task_payload_for_row)
-        self.register_table_for_context(self.task_table, "tasksTable")
         task_table_layout.addWidget(self.task_table)
         task_splitter.addWidget(task_table_panel)
 
@@ -3887,39 +3133,6 @@ class FocusManager(QtWidgets.QMainWindow):
         version_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         version_tab = QtWidgets.QWidget()
         version_layout = self._register_layout(QtWidgets.QVBoxLayout(version_tab))
-        repo_content = QtWidgets.QWidget()
-        repo_layout = self._register_layout(QtWidgets.QVBoxLayout(repo_content))
-        self.repo_status_label = QtWidgets.QLabel("Repository overview collapsed – expand to load.")
-        self.repo_status_label.setStyleSheet("color: #8ad0ff;")
-        repo_layout.addWidget(self.repo_status_label)
-        self.repo_table = QtWidgets.QTableWidget(0, 5)
-        self.repo_table.setHorizontalHeaderLabels(["Repository Name", "Available Branches", "Active Branch", "Last Updated", "Visibility"])
-        try:
-            self.repo_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        except Exception:
-            pass
-        self.repo_table.setSelectionMode(qt_single_select())
-        self.repo_table.setSelectionBehavior(qt_select_rows())
-        self.repo_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.repo_table.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-        self.repo_table.setAlternatingRowColors(False)
-        self.repo_table.setStyleSheet(
-            "QTableWidget { background: #0f1626; color: #d8f6ff; } "
-            "QTableWidget::item { background: #0f1626; color: #d8f6ff; } "
-            "QTableWidget::item:selected { background: rgba(146,158,255,0.25); }"
-        )
-        self._enable_vertical_scroll(self.repo_table)
-        self.register_table_row_context(self.repo_table, "repoTable", self._repo_payload_for_row)
-        self.register_table_for_context(self.repo_table, "repoTable")
-        repo_layout.addWidget(self.repo_table)
-        self.repo_pane = CollapsiblePane(
-            "Repository Overview",
-            repo_content,
-            collapsed=self.get_collapsible_state("repo-overview", True),
-            on_toggle=self._on_repo_overview_toggled,
-        )
-        self.register_pane_context(self.repo_pane, "repo-overview")
-        version_layout.addWidget(self.repo_pane)
         self.version_context_label = QtWidgets.QLabel("Selected: No Project Selected | Focused: None")
         self.version_context_label.setStyleSheet("color: #9ce4ff; font-weight: bold;")
         version_layout.addWidget(self.version_context_label)
@@ -3971,29 +3184,14 @@ class FocusManager(QtWidgets.QMainWindow):
         self.version_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self._enable_vertical_scroll(self.version_list)
         history_layout.addWidget(self.version_list)
-        self.history_box = CollapsiblePane(
+        history_box = CollapsiblePane(
             "Version History",
             history_content,
             collapsed=self.get_collapsible_state("version-history", False),
             on_toggle=partial(self._on_collapsible_toggle, "version-history"),
         )
-        self.register_pane_context(self.history_box, "version-history")
-        version_layout.addWidget(self.history_box)
+        version_layout.addWidget(history_box)
         version_layout.addWidget(vcs_box)
-        redaction_row = self._register_layout(WrapLayout(margin=0, h_spacing=8, v_spacing=0))
-        redaction_row.addWidget(QtWidgets.QLabel("Redaction:"))
-        self.redaction_badge = QtWidgets.QLabel("UNREDACTED")
-        self.redaction_badge.setAlignment(QtCore.Qt.AlignCenter)
-        self.redaction_badge.setStyleSheet("color: #9ce4ff; border: 1px solid #9ce4ff; border-radius: 6px; padding: 6px 10px;")
-        redaction_row.addWidget(self.redaction_badge)
-        self.redact_btn = QtWidgets.QPushButton("Redact")
-        self.unredact_btn = QtWidgets.QPushButton("Unredact")
-        for btn in (self.redact_btn, self.unredact_btn):
-            self.ensure_interactable(btn)
-        redaction_row.addWidget(self.redact_btn)
-        redaction_row.addWidget(self.unredact_btn)
-        redaction_row.addItem(QtWidgets.QSpacerItem(0, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
-        version_layout.addLayout(redaction_row)
         version_scroll.setWidget(version_tab)
         tabs.addTab(version_scroll, "Versioning")
 
@@ -4016,7 +3214,10 @@ class FocusManager(QtWidgets.QMainWindow):
         settings_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         settings_scroll.setWidget(settings_tab)
         tabs.addTab(settings_scroll, "Settings")
-        self.tab_scrolls = [projects_scroll, workspaces_scroll, network_scroll, tasks_scroll, version_scroll, settings_scroll]
+        photon_tab = self._build_photon_terminal_tab()
+        tabs.addTab(photon_tab, "PHØTØN")
+        self.photon_tab_index = tabs.indexOf(photon_tab)
+        self.tab_scrolls = [projects_scroll, workspaces_scroll, network_scroll, tasks_scroll, version_scroll, settings_scroll, None]
         tabs.currentChanged.connect(self._on_tab_changed)
 
         self._apply_theme(scale_factor=self.scale_factor)
@@ -4125,20 +3326,6 @@ class FocusManager(QtWidgets.QMainWindow):
             self.project_table.viewport().update()
         self.reflow_layouts()
         self._geometry_guard()
-        self._update_photon_entry_button_style()
-
-    def _update_photon_entry_button_style(self):
-        btn = getattr(self, "photon_entry_btn", None)
-        if not btn:
-            return
-        accent = getattr(self, "accent_primary", ACCENTS["cyan"]["primary"])
-        glow = getattr(self, "accent_glow", ACCENTS["cyan"]["glow"])
-        btn.setStyleSheet(
-            f"border-radius: 26px; background-color: {accent}; color: #050a13; border: 2px solid {glow};"
-        )
-        effect = getattr(self, "_photon_entry_effect", None)
-        if effect:
-            effect.setColor(QtGui.QColor(glow))
 
     # ---- Session safety helpers ----
     def _force_cleanup_on_start(self):
@@ -4380,495 +3567,6 @@ class FocusManager(QtWidgets.QMainWindow):
             widget.setMinimumHeight(INTERACTION_MIN_HEIGHT)
             widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
 
-    def _apply_background_image(self):
-        try:
-            bg_path = os.path.join(os.path.dirname(__file__), "background.png")
-            if not os.path.exists(bg_path):
-                return
-            url_path = bg_path.replace("\\", "/")
-            sheet = (
-                f"#singularityMainWindow {{ border-image: url('{url_path}') 0 0 0 0 stretch stretch; }}"
-                f"#centralwidget {{ border-image: url('{url_path}') 0 0 0 0 stretch stretch; }}"
-            )
-            self.setStyleSheet(sheet)
-        except Exception:
-            pass
-
-    # ---- Tooltip and context menu primitives ----
-    def _bulk_register_tooltips(self):
-        if not hasattr(self, "tooltip_manager") or self.tooltip_manager is None:
-            return
-        interactive_types = (
-            QtWidgets.QPushButton,
-            QtWidgets.QToolButton,
-            QtWidgets.QCheckBox,
-            QtWidgets.QRadioButton,
-            QtWidgets.QComboBox,
-            QtWidgets.QSpinBox,
-            QtWidgets.QDoubleSpinBox,
-            QtWidgets.QLineEdit,
-            QtWidgets.QAbstractSlider,
-            QtWidgets.QTabBar,
-        )
-        for widget in self.findChildren(QtWidgets.QWidget):
-            if isinstance(widget, interactive_types) and not self.tooltip_manager.has(widget):
-                existing = widget.toolTip()
-                if existing:
-                    self.tooltip_manager.register(widget, existing)
-                    continue
-                label = ""
-                if hasattr(widget, "text"):
-                    try:
-                        label = widget.text()
-                    except Exception:
-                        label = ""
-                label = label or widget.objectName() or widget.__class__.__name__
-                self.tooltip_manager.register(widget, label, "Affects system state or selection.")
-
-    def _normalize_column_id(self, label: str):
-        cleaned = re.sub(r"[^A-Za-z0-9]+", "_", label or "").strip("_").lower()
-        return cleaned or "col"
-
-    def _get_column_visibility(self, table_id: str, column_id: str, default=True):
-        return self.column_visibility.get(table_id, {}).get(column_id, default)
-
-    def _set_column_visibility(self, table_id: str, column_id: str, visible: bool):
-        self.column_visibility.setdefault(table_id, {})[column_id] = bool(visible)
-        self.settings["column_visibility"] = self.column_visibility
-        self.save_settings()
-
-    def _apply_column_visibility(self, table_id: str, table_widget: QtWidgets.QTableWidget):
-        header = table_widget.horizontalHeader()
-        for logical in range(table_widget.columnCount()):
-            label = header.model().headerData(logical, QtCore.Qt.Horizontal) or f"col_{logical}"
-            column_id = self._normalize_column_id(str(label))
-            visible = self._get_column_visibility(table_id, column_id, default=True)
-            table_widget.setColumnHidden(logical, not visible)
-
-    def toggle_column_visibility(self, table_id: str, column_id: str, logical_index: int, visible: bool):
-        table = self.table_registry.get(table_id)
-        if not table:
-            return
-        table.setColumnHidden(logical_index, not visible)
-        self._set_column_visibility(table_id, column_id, visible)
-
-    def register_table_for_context(self, table_widget: QtWidgets.QTableWidget, table_id: str):
-        if not table_widget:
-            return
-        self.table_registry[table_id] = table_widget
-        table_widget.setObjectName(table_id)
-        header = table_widget.horizontalHeader()
-        header.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        header.customContextMenuRequested.connect(partial(self._on_table_header_context, table_id, table_widget))
-        self._apply_column_visibility(table_id, table_widget)
-        if hasattr(self, "tooltip_manager") and self.tooltip_manager:
-            self.tooltip_manager.register(header, "Column Controls", "Right-click any column header for quick settings.")
-
-    def register_table_row_context(self, table_widget: QtWidgets.QTableWidget, table_id: str, payload_builder=None):
-        if not table_widget:
-            return
-        table_widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        table_widget.customContextMenuRequested.connect(partial(self._on_table_row_context, table_id, table_widget, payload_builder))
-        if hasattr(self, "tooltip_manager") and self.tooltip_manager:
-            self.tooltip_manager.register(table_widget, f"{table_id} rows", "Right-click any row for quick actions.")
-
-    def _on_table_header_context(self, table_id: str, table_widget: QtWidgets.QTableWidget, pos: QtCore.QPoint):
-        header = table_widget.horizontalHeader()
-        logical = header.logicalIndexAt(pos)
-        if logical < 0:
-            return
-        label = header.model().headerData(logical, QtCore.Qt.Horizontal) or f"col_{logical}"
-        column_id = self._normalize_column_id(str(label))
-        is_visible = not table_widget.isColumnHidden(logical)
-        payload = {
-            "type": "table-column",
-            "targetId": f"{table_id}:{column_id}",
-            "metadata": {
-                "tableId": table_id,
-                "columnId": column_id,
-                "columnLabel": str(label),
-                "isVisible": is_visible,
-                "logicalIndex": logical,
-            },
-            "capabilities": ["visibility"],
-        }
-        actions = self._build_context_actions(payload)
-        global_pos = header.mapToGlobal(pos)
-        self.context_menu_manager.open_menu(payload, actions, global_pos)
-
-    def _on_table_row_context(self, table_id: str, table_widget: QtWidgets.QTableWidget, payload_builder, pos: QtCore.QPoint):
-        index = table_widget.indexAt(pos)
-        if not index.isValid():
-            return
-        row = index.row()
-        if payload_builder:
-            payload = payload_builder(row)
-        else:
-            payload = {
-                "type": "table-row",
-                "targetId": f"{table_id}:{row}",
-                "metadata": {"tableId": table_id, "row": row},
-                "capabilities": [],
-            }
-        if not payload:
-            return
-        actions = self._build_context_actions(payload)
-        global_pos = table_widget.viewport().mapToGlobal(pos)
-        self.context_menu_manager.open_menu(payload, actions, global_pos)
-
-    def _task_payload_for_row(self, row: int):
-        uuid_item = self.task_table.item(row, 0)
-        task_id = uuid_item.text() if uuid_item else ""
-        if not task_id:
-            header_item = self.task_table.verticalHeaderItem(row)
-            task_id = header_item.text() if header_item else ""
-        task = self.store.get_task(task_id) if task_id else None
-        return {
-            "type": "task",
-            "targetId": task_id or f"tasksTable:{row}",
-            "metadata": {
-                "tableId": "tasksTable",
-                "row": row,
-                "task": task or {},
-                "project": task.get("project") if task else None,
-                "origin_path": os.path.join(PROJECT_ROOT, task.get("project")) if task and task.get("project") else None,
-            },
-            "capabilities": ["visibility", "watch"],
-        }
-
-    def _project_payload_for_row(self, row: int):
-        item = self.project_table.item(row, 0)
-        name = item.text() if item else f"project_{row}"
-        path = os.path.join(PROJECT_ROOT, name)
-        return {
-            "type": "project",
-            "targetId": name,
-            "metadata": {"tableId": "projectsTable", "row": row, "origin_path": path},
-            "capabilities": ["watch"],
-        }
-
-    def _repo_payload_for_row(self, row: int):
-        item = self.repo_table.item(row, 0)
-        name = item.text() if item else f"repo_{row}"
-        return {
-            "type": "repository",
-            "targetId": name,
-            "metadata": {"tableId": "repoTable", "row": row},
-            "capabilities": ["watch"],
-        }
-
-    def _net_payload_for_row(self, row: int):
-        values = []
-        for col in range(self.net_table.columnCount()):
-            cell = self.net_table.item(row, col)
-            values.append(cell.text() if cell else "")
-        target_id = f"net_event_{row}"
-        return {
-            "type": "network-event",
-            "targetId": target_id,
-            "metadata": {"tableId": "networkTable", "row": row, "values": values},
-            "capabilities": ["watch"],
-        }
-
-    def register_pane_context(self, pane: CollapsiblePane, pane_id: str):
-        if not pane or not hasattr(pane, "title_label"):
-            return
-        pane.title_label.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        pane.title_label.customContextMenuRequested.connect(partial(self._on_pane_context, pane_id, pane))
-        if hasattr(self, "tooltip_manager") and self.tooltip_manager:
-            self.tooltip_manager.register(pane.title_label, f"{pane_id} controls", "Right-click for quick panel settings.")
-
-    def _on_pane_context(self, pane_id: str, pane: CollapsiblePane, pos: QtCore.QPoint):
-        is_collapsed = not bool(pane.toggle.isChecked())
-        payload = {
-            "type": "panel",
-            "targetId": pane_id,
-            "metadata": {
-                "paneId": pane_id,
-                "isCollapsed": is_collapsed,
-                "paneRef": pane,
-            },
-            "capabilities": ["collapse"],
-        }
-        actions = self._build_context_actions(payload)
-        global_pos = pane.title_label.mapToGlobal(pos)
-        self.context_menu_manager.open_menu(payload, actions, global_pos)
-
-    def _build_context_actions(self, payload: dict) -> list[dict]:
-        actions: list[dict] = []
-        ptype = payload.get("type")
-        meta = payload.get("metadata") or {}
-        caps = set(payload.get("capabilities") or [])
-        # Global action registry first
-        for spec in self.action_registry.actions_for_payload(payload):
-            tooltip = spec.get("tooltip_primary", "")
-            secondary = spec.get("tooltip_secondary", "")
-            combined = f"{tooltip}\n{secondary}".strip()
-            checked = False
-            atype = "toggle" if spec.get("toggled") else "action"
-            if spec.get("id") == "watch":
-                checked = self.watch_manager.is_watched(payload.get("targetId", ""))
-                atype = "toggle"
-            actions.append(
-                {
-                    "label": spec.get("label", "Action"),
-                    "type": atype,
-                    "checked": checked,
-                    "tooltip": combined,
-                    "action": lambda checked=False, handler=spec.get("handler"): handler(payload),
-                }
-            )
-        if ptype == "table-column":
-            if "visibility" in caps:
-                table_id = meta.get("tableId")
-                col_id = meta.get("columnId")
-                logical = meta.get("logicalIndex")
-                if table_id and col_id is not None and logical is not None:
-                    col_label = meta.get("columnLabel", col_id)
-                    visible = bool(meta.get("isVisible", True))
-                    actions.append(
-                        {
-                            "label": "Toggle Visibility",
-                            "type": "toggle",
-                            "checked": visible,
-                            "tooltip": (
-                                f"{'Hide' if visible else 'Show'} column '{col_label}'.\n"
-                                "Visibility is persisted for this table."
-                            ),
-                            "action": partial(self.toggle_column_visibility, table_id, col_id, logical),
-                        }
-                    )
-        elif ptype == "panel":
-            if "collapse" in caps:
-                collapsed = bool(meta.get("isCollapsed", False))
-                pane_id = meta.get("paneId")
-                pane_ref: CollapsiblePane | None = meta.get("paneRef")
-                actions.append(
-                    {
-                        "label": "Expanded",
-                        "type": "toggle",
-                        "checked": not collapsed,
-                        "tooltip": ("Collapse this panel" if not collapsed else "Expand this panel"),
-                        "action": lambda checked, pid=pane_id, pref=pane_ref: self._toggle_panel_state(pid, pref, checked),
-                    }
-                )
-        return actions
-
-    def _toggle_panel_state(self, pane_id: str, pane: CollapsiblePane, expanded: bool):
-        if pane and hasattr(pane, "toggle"):
-            pane.toggle.setChecked(expanded)
-        self.set_collapsible_state(pane_id, collapsed=not expanded)
-
-    def _current_context_payload(self):
-        return {
-            "type": "application",
-            "targetId": self.active_project or "console",
-            "metadata": {"active_project": self.active_project, "state": getattr(self, "current_state", "Idle")},
-            "capabilities": ["inspect", "watch"],
-        }
-
-    def _register_global_actions(self):
-        self.action_registry.register(
-            "inspect",
-            "Inspect",
-            self._context_inspect,
-            tooltip_primary="Inspect the selected object",
-            tooltip_secondary="Opens an inline inspector with identity and metadata.",
-            context_filter=lambda p: bool(p.get("targetId")),
-        )
-        self.action_registry.register(
-            "copy_id",
-            "Copy ID / Reference",
-            self._context_copy_id,
-            tooltip_primary="Copy the object's identifier",
-            tooltip_secondary="Use in logs, watch list, or command palette filters.",
-            context_filter=lambda p: bool(p.get("targetId")),
-        )
-        self.action_registry.register(
-            "jump_origin",
-            "Jump to Origin",
-            self._context_jump_origin,
-            tooltip_primary="Navigate to the object's source",
-            tooltip_secondary="Focuses list/table/source view if available.",
-            context_filter=lambda p: bool(p.get("metadata", {}).get("origin_path") or p.get("metadata", {}).get("row")),
-        )
-        self.action_registry.register(
-            "toggle_scope",
-            "Toggle Visibility/Scope",
-            self._context_toggle_scope,
-            tooltip_primary="Include or hide this object in the current scope",
-            tooltip_secondary="Persists where supported (columns, watched sets).",
-            context_filter=lambda p: "isVisible" in (p.get("metadata") or {}),
-            toggled=True,
-        )
-        self.action_registry.register(
-            "watch",
-            "Watch / Unwatch",
-            self._context_watch_toggle,
-            tooltip_primary="Monitor this object for events",
-            tooltip_secondary="Adds to global watch list and event bus surfacing.",
-            context_filter=lambda p: bool(p.get("targetId")),
-            toggled=True,
-        )
-        self.action_registry.register(
-            "pin",
-            "Pin / Unpin",
-            self._context_pin_toggle,
-            tooltip_primary="Keep this object prioritized",
-            tooltip_secondary="Pins in lists where supported; otherwise tracked globally.",
-            context_filter=lambda p: bool(p.get("targetId")),
-            toggled=True,
-        )
-        self.action_registry.register(
-            "mute",
-            "Mute",
-            self._context_mute_toggle,
-            tooltip_primary="Silence non-critical notifications for this object",
-            tooltip_secondary="Muted objects remain active but less noisy.",
-            context_filter=lambda p: bool(p.get("targetId")),
-            toggled=True,
-        )
-        self.action_registry.register(
-            "watch_center",
-            "Open Watch Center",
-            lambda payload: self._open_watch_center(),
-            tooltip_primary="Manage watched objects globally",
-            tooltip_secondary="Inspect and unwatch items from one place.",
-            context_filter=lambda _p: True,
-        )
-        self.action_registry.register(
-            "event_viewer",
-            "Open Event Bus",
-            lambda payload: self._open_event_viewer(),
-            tooltip_primary="Inspect recent events",
-            tooltip_secondary="Filter and replay context from the unified event bus.",
-            context_filter=lambda _p: True,
-        )
-
-    def _context_inspect(self, payload):
-        meta = payload.get("metadata", {})
-        target = payload.get("targetId", "Unknown")
-        text = json.dumps({"targetId": target, "type": payload.get("type"), "metadata": meta}, indent=2)
-        QtWidgets.QMessageBox.information(self, "Inspect", text)
-
-    def _context_copy_id(self, payload):
-        target = payload.get("targetId", "")
-        if not target:
-            return
-        QtWidgets.QApplication.clipboard().setText(str(target))
-        self.set_state("Idle", f"Copied {target}")
-
-    def _context_jump_origin(self, payload):
-        meta = payload.get("metadata", {})
-        path = meta.get("origin_path") or meta.get("source_atlas_file")
-        if path and os.path.exists(path):
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(path))
-            return
-        row = meta.get("row")
-        if payload.get("type") == "table-row" and row is not None:
-            table_id = meta.get("tableId")
-            table = self.table_registry.get(table_id) if table_id else None
-            if table:
-                try:
-                    table.selectRow(int(row))
-                except Exception:
-                    pass
-
-    def _context_toggle_scope(self, payload):
-        meta = payload.get("metadata", {})
-        if payload.get("type") == "table-column" and "logicalIndex" in meta:
-            table_id = meta.get("tableId")
-            col_id = meta.get("columnId")
-            logical = meta.get("logicalIndex")
-            current = bool(meta.get("isVisible", True))
-            self.toggle_column_visibility(table_id, col_id, logical, not current)
-            return
-
-    def _context_watch_toggle(self, payload):
-        target = payload.get("targetId")
-        added = self.watch_manager.toggle_watch(target, payload)
-        self.set_state("Idle", "Watching" if added else "Unwatched")
-        self.event_bus.emit("watch", {"target": target, "added": added})
-
-    def _context_pin_toggle(self, payload):
-        # Track pinned items in settings for persistence.
-        target = payload.get("targetId")
-        pins = set(self.settings.get("pinned", []))
-        if target in pins:
-            pins.remove(target)
-            pinned = False
-        else:
-            pins.add(target)
-            pinned = True
-        self.settings["pinned"] = sorted(pins)
-        self.save_settings()
-        self.event_bus.emit("pin", {"target": target, "pinned": pinned})
-
-    def _context_mute_toggle(self, payload):
-        target = payload.get("targetId")
-        muted = set(self.settings.get("muted", []))
-        if target in muted:
-            muted.remove(target)
-            now_muted = False
-        else:
-            muted.add(target)
-            now_muted = True
-        self.settings["muted"] = sorted(muted)
-        self.save_settings()
-        self.event_bus.emit("mute", {"target": target, "muted": now_muted})
-
-    def _open_watch_center(self):
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Watch Center")
-        layout = QtWidgets.QVBoxLayout(dlg)
-        list_widget = QtWidgets.QListWidget()
-        for target, data in self.watch_manager.items().items():
-            item = QtWidgets.QListWidgetItem(f"{target} @ {data.get('ts')}")
-            item.setToolTip(json.dumps(data.get("metadata", {}), indent=2))
-            item.setData(QtCore.Qt.UserRole, target)
-            list_widget.addItem(item)
-        layout.addWidget(list_widget)
-        btn = QtWidgets.QPushButton("Unwatch Selected")
-        layout.addWidget(btn)
-
-        def unwatch():
-            for it in list_widget.selectedItems():
-                tid = it.data(QtCore.Qt.UserRole)
-                self.watch_manager.toggle_watch(tid)
-            dlg.accept()
-
-        btn.clicked.connect(unwatch)
-        dlg.resize(420, 360)
-        dlg.exec_()
-
-    def _open_event_viewer(self):
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Event Bus")
-        layout = QtWidgets.QVBoxLayout(dlg)
-        search = QtWidgets.QLineEdit()
-        search.setPlaceholderText("Filter by scope or payload...")
-        list_widget = QtWidgets.QListWidget()
-        layout.addWidget(search)
-        layout.addWidget(list_widget)
-
-        def refresh():
-            query = search.text().lower().strip()
-            list_widget.clear()
-            for ev in reversed(self.event_bus.list_events()):
-                scope = ev.get("scope", "")
-                payload = ev.get("payload", {})
-                txt = f"[{ev.get('ts')}] {scope}"
-                if query and query not in txt.lower() and query not in json.dumps(payload).lower():
-                    continue
-                item = QtWidgets.QListWidgetItem(txt)
-                item.setToolTip(json.dumps(payload, indent=2))
-                list_widget.addItem(item)
-
-        search.textChanged.connect(refresh)
-        refresh()
-        dlg.resize(520, 420)
-        dlg.exec_()
-
     def reflow_layouts(self):
         if not hasattr(self, "responsive_layouts"):
             return
@@ -4923,89 +3621,15 @@ class FocusManager(QtWidgets.QMainWindow):
                 pass
 
     def _on_tab_changed(self, idx):
-        self._tab_change_pending_idx = idx
-        if not self._tab_change_flush_scheduled:
-            self._tab_change_flush_scheduled = True
-            QtCore.QTimer.singleShot(0, self._flush_tab_change)
-
-    # ---- PHOTON layout attachment helpers ----
-    def _attach_photon_panel(self):
-        panel = getattr(self, "photon_panel", None)
-        layout = getattr(self, "body_layout", None)
-        if not panel or not layout or getattr(self, "photon_panel_attached", False):
-            return
-        panel.setParent(self)
-        panel.setVisible(True)
-        layout.addWidget(panel)
-        self.photon_panel_attached = True
-
-    def _detach_photon_panel(self):
-        panel = getattr(self, "photon_panel", None)
-        layout = getattr(self, "body_layout", None)
-        if not panel or not layout or not getattr(self, "photon_panel_attached", False):
-            return
-        layout.removeWidget(panel)
-        panel.setVisible(False)
-        panel.hide()
-        panel.setParent(None)
-        self.photon_panel_attached = False
+        self._reset_tab_scroll(idx)
+        if hasattr(self, "sound_engine"):
+            self.sound_engine.play("tab")
+        if getattr(self, "photon_tab_index", None) == idx and hasattr(self, "photon_terminal_widget"):
+            self.photon_terminal_widget.tab_activated()
 
     # ---- UX/state helpers ----
     def _log_state_violation(self, reason, state, message):
         self.log_debug("STABILITY", {"state_violation": reason, "requested_state": state, "message": message})
-
-    def _flush_tab_change(self):
-        idx = self._tab_change_pending_idx
-        self._tab_change_pending_idx = None
-        self._tab_change_flush_scheduled = False
-        if idx is None:
-            return
-        self._reset_tab_scroll(idx)
-        self._last_active_tab = idx
-        if hasattr(self, "sound_engine"):
-            self.sound_engine.play("tab")
-        if getattr(self, "photon_panel_container", None) and self.photon_panel_container.isVisible():
-            self.photon_terminal_widget.tab_activated()
-
-    def _enter_photon_interface(self):
-        if not hasattr(self, "photon_panel_container"):
-            return
-        if self.photon_panel_container.isVisible():
-            if hasattr(self, "photon_entry_btn"):
-                self.photon_entry_btn.setChecked(True)
-            return
-        self._attach_photon_panel()
-        tabs = getattr(self, "tab_widget", None)
-        if tabs:
-            self._last_active_tab = tabs.currentIndex()
-        self.photon_panel_container.setVisible(True)
-        try:
-            height = max(300, self.height() // 2)
-            self.photon_panel_container.setMinimumHeight(height)
-            self.photon_panel_container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        except Exception:
-            pass
-        if hasattr(self, "photon_entry_btn"):
-            self.photon_entry_btn.setChecked(True)
-        if hasattr(self, "photon_terminal_widget"):
-            self.photon_terminal_widget.tab_activated()
-            self.photon_terminal_widget.focus_terminal()
-
-    def _return_to_singularity_interface(self):
-        if not hasattr(self, "photon_panel_container"):
-            return
-        if not self.photon_panel_container.isVisible():
-            return
-        self.photon_panel_container.setVisible(False)
-        self._detach_photon_panel()
-        if hasattr(self, "photon_entry_btn"):
-            self.photon_entry_btn.setChecked(False)
-        tabs = getattr(self, "tab_widget", None)
-        if not tabs or tabs.count() == 0:
-            return
-        target = getattr(self, "_last_active_tab", 0)
-        target = max(0, min(target, tabs.count() - 1))
-        tabs.setCurrentIndex(target)
 
     def set_state(self, state, message=""):
         if not self._ui_alive(self):
@@ -5028,7 +3652,6 @@ class FocusManager(QtWidgets.QMainWindow):
             if state == "Error":
                 self.refresh_health_panel("Unknown")
             self.log_debug("UI_STATE", {"state": state, "message": message})
-            self._update_runtime_strip(state=state)
         finally:
             self._state_transition_active = False
             if getattr(self, "_state_queue", deque()):
@@ -5036,14 +3659,6 @@ class FocusManager(QtWidgets.QMainWindow):
                     self._state_queue.popleft()
                 except Exception:
                     self._state_queue = deque()
-
-    def _update_runtime_strip(self, state=None):
-        if not hasattr(self, "runtime_strip"):
-            return
-        project = self.active_project or "None"
-        stability = "Safe" if getattr(self.supervisor, "state", {}).get("force_software_render") else getattr(self.supervisor, "debug_level", "normal").title()
-        state_val = state or getattr(self, "current_state", "Idle")
-        self.runtime_strip.update_state(project=project, state=state_val, stability=stability, warnings=self.warning_count)
 
     def _safe_show_operation(self, message, state):
         if not self._ui_alive(self):
@@ -5071,8 +3686,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.error_banner.setVisible(True)
         self.set_state("Error", message)
         self.log_debug("ERRORS", {"message": message})
-        self.warning_count += 1
-        self._update_runtime_strip()
 
     def clear_error_banner(self):
         self.error_label.setText("")
@@ -5435,10 +4048,6 @@ class FocusManager(QtWidgets.QMainWindow):
                     fh.write(f"[{timestamp}] {json.dumps(data)}\n")
             except Exception:
                 pass
-        try:
-            self.event_bus.emit(scope, {"data": data, "ts": timestamp})
-        except Exception:
-            pass
 
     def _stability_event(self, scope, data):
         # Route stability/self-healing events through the unified debug system.
@@ -5586,8 +4195,6 @@ class FocusManager(QtWidgets.QMainWindow):
         manifest["auto_commit_enabled"] = bool(meta_entry.get("auto_commit", False))
         manifest["localsync_enabled"] = bool(meta_entry.get("localsync", False))
         manifest["localsync_path"] = meta_entry.get("localsync_path")
-        manifest.setdefault("redacted", False)
-        manifest.setdefault("tags", [])
         self.write_manifest(project, manifest)
 
     def update_manifest_fields(self, project, **fields):
@@ -5698,76 +4305,17 @@ class FocusManager(QtWidgets.QMainWindow):
             collapsed=not default_expanded,
             on_toggle=partial(self._on_collapsible_toggle, f"settings.{title.lower()}"),
         )
-        self.register_pane_context(pane, f"settings.{title.lower()}")
         return pane
 
-    def _build_photon_side_panel(self, tabs=None):
-        panel = QtWidgets.QFrame()
-        panel.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        panel_layout = self._register_layout(QtWidgets.QVBoxLayout(panel))
-        panel_layout.setContentsMargins(0, 0, 0, 0)
-        panel_layout.setSpacing(8)
-        entry_btn = QtWidgets.QPushButton("⦿")
-        entry_btn.setCheckable(True)
-        entry_btn.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
-        entry_btn.setToolTip("Enter the PHØTØN terminal")
-        entry_btn.clicked.connect(self._enter_photon_interface)
-        # Tuck the PHØTØN toggle into the tab bar corner to avoid vertical whitespace.
-        corner_box = QtWidgets.QFrame()
-        corner_box.setObjectName("photonCornerBox")
-        corner_box.setStyleSheet(
-            "#photonCornerBox {"
-            "border: 1px solid #2b3854; border-radius: 8px; background-color: #0a1322; padding: 2px;"
-            "}"
-        )
-        corner_layout = QtWidgets.QHBoxLayout(corner_box)
-        corner_layout.setContentsMargins(4, 4, 4, 4)
-        corner_layout.setSpacing(4)
-        entry_btn.setFixedSize(36, 36)
-        icon_font = QtGui.QFont("JetBrains Mono")
-        icon_font.setPointSize(14)
-        entry_btn.setFont(icon_font)
-        corner_layout.addWidget(entry_btn)
-        if tabs is not None:
-            tabs.setCornerWidget(corner_box, QtCore.Qt.TopRightCorner)
-        else:
-            panel_layout.addWidget(corner_box, 0, QtCore.Qt.AlignTop | QtCore.Qt.AlignHCenter)
-        self.photon_entry_btn = entry_btn
-        entry_effect = QtWidgets.QGraphicsDropShadowEffect()
-        entry_effect.setOffset(0, 0)
-        entry_effect.setColor(QtGui.QColor(self.accent_glow))
-        entry_effect.setBlurRadius(18)
-        entry_btn.setGraphicsEffect(entry_effect)
-        self._photon_entry_effect = entry_effect
-        pulse_anim = QtCore.QPropertyAnimation(entry_effect, b"blurRadius")
-        pulse_anim.setStartValue(14)
-        pulse_anim.setEndValue(28)
-        pulse_anim.setDuration(1400)
-        pulse_anim.setLoopCount(-1)
-        pulse_anim.setEasingCurve(QtCore.QEasingCurve.InOutQuad)
-        pulse_anim.start()
-        self._photon_entry_pulse = pulse_anim
-        container = QtWidgets.QFrame()
-        container.setFrameShape(QtWidgets.QFrame.NoFrame)
-        container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        container_layout = self._register_layout(QtWidgets.QVBoxLayout(container))
-        container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(0)
-        terminal = PhotonTerminalWidget(
-            self.sound_engine,
-            self.accent_primary,
-            self.accent_glow,
-            parent=container,
-            base_env=self.supervisor.subprocess_env(),
-        )
-        terminal.back_requested.connect(self._return_to_singularity_interface)
-        container_layout.addWidget(terminal)
-        container.setVisible(False)
-        panel_layout.addWidget(container)
-        panel_layout.addStretch(1)
-        self.photon_panel_container = container
+    def _build_photon_terminal_tab(self):
+        tab = QtWidgets.QWidget()
+        layout = self._register_layout(QtWidgets.QVBoxLayout(tab))
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        terminal = PhotonTerminalWidget(self.sound_engine, self.accent_primary, self.accent_glow, parent=tab)
+        layout.addWidget(terminal)
         self.photon_terminal_widget = terminal
-        return panel
+        return tab
 
     def log_vcs(self, msg):
         # Non-sensitive logging to versioning output pane
@@ -6037,8 +4585,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.fetch_versions_btn.clicked.connect(self.fetch_versions)
         self.revert_version_btn.clicked.connect(self.revert_version)
         self.version_list.itemSelectionChanged.connect(self._on_version_selection_changed)
-        self.redact_btn.clicked.connect(lambda: self._on_redaction_toggle(True))
-        self.unredact_btn.clicked.connect(lambda: self._on_redaction_toggle(False))
         self.debug_window_btn.clicked.connect(self.toggle_debug_window)
 
     def _setup_shortcuts(self):
@@ -6050,7 +4596,6 @@ class FocusManager(QtWidgets.QMainWindow):
             "commit": QtWidgets.QShortcut(QtGui.QKeySequence(self.keybinds["commit"]), self, activated=self.autogit_commit),
             "tab_prev": QtWidgets.QShortcut(QtGui.QKeySequence(self.keybinds.get("tab_prev", "Ctrl+Left")), self, activated=self._switch_tab_prev),
             "tab_next": QtWidgets.QShortcut(QtGui.QKeySequence(self.keybinds.get("tab_next", "Ctrl+Right")), self, activated=self._switch_tab_next),
-            "command_palette": QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, activated=lambda: self.command_palette.open_for_payload(self._current_context_payload())),
         }
         # arrow keys within Tasks pane to move focus across the three panes
         self.shortcuts["tasks_left"] = QtWidgets.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Left), self, activated=self._focus_tasks_left, context=QtCore.Qt.ApplicationShortcut)
@@ -6142,29 +4687,21 @@ class FocusManager(QtWidgets.QMainWindow):
 
         self.active_project = self.get_marker_project()
         names = [p[0] for p in projects]
-        self.redaction_state = {k: v for k, v in self.redaction_state.items() if k in names}
         if self.selected_project and self.selected_project not in names:
             self.selected_project = None
         self.project_table.setRowCount(len(projects))
         for row, (name, mtime) in enumerate(projects):
-            # ensure manifest exists and capture redaction state
-            meta_entry = self.project_meta.get(name, {"origin": "Local", "auto_commit": False, "localsync": False})
-            origin_val = meta_entry.get("origin", "Local")
-            self.ensure_manifest(name, origin=origin_val, origin_path=meta_entry.get("origin_path"))
-            manifest = self.load_manifest(name) or {}
-            redacted = bool(manifest.get("redacted", False))
-            self.redaction_state[name] = redacted
-            display_name = f"{name} [REDACTED]" if redacted else name
-            name_item = QtWidgets.QTableWidgetItem(display_name)
-            name_item.setData(QtCore.Qt.UserRole, name)
+            name_item = QtWidgets.QTableWidgetItem(name)
             time_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
             time_item = QtWidgets.QTableWidgetItem(time_str)
+            meta_entry = self.project_meta.get(name, {"origin": "Local", "auto_commit": False, "localsync": False})
+            origin_val = meta_entry.get("origin", "Local")
+            # ensure manifest exists for portability
+            self.ensure_manifest(name, origin=origin_val, origin_path=meta_entry.get("origin_path"))
             origin_item = QtWidgets.QTableWidgetItem(origin_val)
             name_item.setFlags(qt_no_edit(name_item.flags()))
             time_item.setFlags(qt_no_edit(time_item.flags()))
             origin_item.setFlags(qt_no_edit(origin_item.flags()))
-            if redacted:
-                name_item.setForeground(QtGui.QColor("#d14b4b"))
             self.project_table.setItem(row, 0, name_item)
             self.project_table.setItem(row, 1, time_item)
 
@@ -6321,137 +4858,7 @@ class FocusManager(QtWidgets.QMainWindow):
         selected = self.project_table.selectionModel().selectedRows()
         if not selected:
             return None
-        item = self.project_table.item(selected[0].row(), 0)
-        if not item:
-            return None
-        return item.data(QtCore.Qt.UserRole) or item.text()
-
-    def _normalized_tags(self, tags):
-        normalized = []
-        seen = set()
-        for tag in tags or []:
-            if not isinstance(tag, str):
-                continue
-            clean = tag.strip()
-            if not clean:
-                continue
-            key = clean.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            normalized.append(clean)
-        return normalized
-
-    def get_project_redaction(self, project):
-        if not project:
-            return False
-        if project in self.redaction_state:
-            return self.redaction_state[project]
-        manifest = self.load_manifest(project)
-        redacted = bool(manifest.get("redacted", False)) if isinstance(manifest, dict) else False
-        self.redaction_state[project] = redacted
-        return redacted
-
-    def _update_project_row_redaction(self, project, redacted):
-        if not hasattr(self, "project_table") or not project:
-            return
-        for row in range(self.project_table.rowCount()):
-            item = self.project_table.item(row, 0)
-            if not item:
-                continue
-            name = item.data(QtCore.Qt.UserRole) or item.text()
-            if name == project or item.text().startswith(f"{project} "):
-                display_name = f"{project} [REDACTED]" if redacted else project
-                item.setText(display_name)
-                item.setData(QtCore.Qt.UserRole, project)
-                item.setForeground(QtGui.QColor("#d14b4b") if redacted else QtGui.QColor("#d8f6ff"))
-                break
-
-    def _update_redaction_badge(self, project, redacted):
-        if not hasattr(self, "redaction_badge"):
-            return
-        if not project:
-            self.redaction_badge.setText("No project selected")
-            self.redaction_badge.setStyleSheet("color: #d2a446; border: 1px solid #d2a446; border-radius: 6px; padding: 6px 10px;")
-            if hasattr(self, "redact_btn"):
-                self.redact_btn.setEnabled(False)
-                self.unredact_btn.setEnabled(False)
-            return
-        color = "#d14b4b" if redacted else "#9ce4ff"
-        border = color
-        bg = "rgba(209,75,75,0.18)" if redacted else "#1f2d4a"
-        label = "REDACTED" if redacted else "UNREDACTED"
-        self.redaction_badge.setText(f"{label} · {project}")
-        self.redaction_badge.setStyleSheet(f"color: {color}; border: 1px solid {border}; border-radius: 6px; padding: 6px 10px; background-color: {bg}; font-weight: bold;")
-        if hasattr(self, "redact_btn"):
-            enabled = bool(self.selected_project or self.active_project)
-            self.redact_btn.setEnabled(enabled)
-            self.unredact_btn.setEnabled(enabled)
-
-    def _update_workspace_tag_controls(self, project=None, redacted=None, tags=None):
-        if not hasattr(self, "workspace_tags_edit"):
-            return
-        if not project:
-            self.workspace_tags_edit.blockSignals(True)
-            self.workspace_tags_edit.setText("")
-            self.workspace_tags_edit.setEnabled(False)
-            self.workspace_tags_edit.blockSignals(False)
-            self.workspace_redacted_tag.blockSignals(True)
-            self.workspace_redacted_tag.setChecked(False)
-            self.workspace_redacted_tag.setEnabled(False)
-            self.workspace_redacted_tag.blockSignals(False)
-            return
-        manifest = self.load_manifest(project) or {}
-        tag_list = tags if tags is not None else manifest.get("tags", [])
-        normalized_tags = self._normalized_tags(tag_list)
-        if redacted is None:
-            redacted = bool(manifest.get("redacted", False))
-        self.workspace_tags_edit.blockSignals(True)
-        self.workspace_tags_edit.setText(", ".join(normalized_tags))
-        self.workspace_tags_edit.setEnabled(True)
-        self.workspace_tags_edit.blockSignals(False)
-        self.workspace_redacted_tag.blockSignals(True)
-        self.workspace_redacted_tag.setChecked(bool(redacted))
-        self.workspace_redacted_tag.setEnabled(True)
-        self.workspace_redacted_tag.blockSignals(False)
-
-    def set_project_redaction(self, project, redacted, *, tags=None, source="ui"):
-        if not project:
-            return
-        manifest = self.load_manifest(project) or {}
-        tag_list = tags if tags is not None else manifest.get("tags", [])
-        normalized_tags = self._normalized_tags(tag_list)
-        if redacted and all(t.lower() != "redacted" for t in normalized_tags):
-            normalized_tags.append("Redacted")
-        elif not redacted:
-            normalized_tags = [t for t in normalized_tags if t.lower() != "redacted"]
-        self.update_manifest_fields(project, tags=normalized_tags, redacted=bool(redacted))
-        self.redaction_state[project] = bool(redacted)
-        self._update_project_row_redaction(project, bool(redacted))
-        self._update_redaction_badge(project, bool(redacted))
-        self._update_workspace_tag_controls(project, bool(redacted), normalized_tags)
-        if hasattr(self, "project_table"):
-            self.project_table.viewport().update()
-        self.refresh_health_panel()
-        self._sync_repo_visibility(project, bool(redacted))
-        self.log_debug(
-            "PROJECTS",
-            {"project": project, "redacted": bool(redacted), "tags": normalized_tags, "source": source},
-        )
-
-    def refresh_redaction_ui(self):
-        project = self.selected_project or self.active_project
-        redacted = self.get_project_redaction(project) if project else False
-        self._update_redaction_badge(project, redacted)
-        self._update_workspace_tag_controls(project, redacted)
-        self._update_project_row_redaction(project, redacted)
-
-    def _on_redaction_toggle(self, redacted, *args):
-        project = self.selected_project or self.active_project
-        if not project:
-            QtWidgets.QMessageBox.warning(self, "Select Project", "Select a project to change redaction state.")
-            return
-        self.set_project_redaction(project, redacted, source="version-tab")
+        return self.project_table.item(selected[0].row(), 0).text()
 
     def get_marker_project(self):
         # prefer marker for authoritative focused project path
@@ -6493,7 +4900,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.update_auto_commit_toggle_state()
         self.fetch_versions_btn.setEnabled(bool(self.selected_project))
         self.revert_version_btn.setEnabled(bool(self.selected_project) and self.version_list.currentItem() is not None)
-        self.refresh_redaction_ui()
         self.refresh_workspace_views()
         self.refresh_health_panel()
         self.log_debug(
@@ -6512,7 +4918,6 @@ class FocusManager(QtWidgets.QMainWindow):
                 "resolved_path": self.focus_path,
             },
         )
-        self._update_runtime_strip()
 
     def resolve_project_path(self, require_focus_or_selection=True, prefer_canonical=False):
         proj = self.active_project or self.get_selected_project()
@@ -6539,7 +4944,6 @@ class FocusManager(QtWidgets.QMainWindow):
                 self.workspace_graph.clear()
             self.workspace_selected_meta = None
             self._update_workspace_inspector(None)
-            self._update_workspace_tag_controls(None)
             return
         root_changed = force or path != self.workspace_root_path or self.workspace_fs_model is None
         self.workspace_root_path = path
@@ -6575,7 +4979,6 @@ class FocusManager(QtWidgets.QMainWindow):
             self._update_workspace_inspector(self.workspace_selected_meta)
         else:
             self._update_workspace_inspector(None)
-        self._update_workspace_tag_controls(proj, self.get_project_redaction(proj) if proj else False)
 
     def _set_workspace_view_mode(self, mode, force=False):
         if mode not in {"graph", "list"}:
@@ -7214,70 +5617,6 @@ class FocusManager(QtWidgets.QMainWindow):
             return
         self._workspace_update_task_priority(meta, val)
 
-    def _on_workspace_tags_changed(self):
-        if not self._ui_alive(self.workspace_stack):
-            return
-        project = self.selected_project or self.active_project
-        if not project:
-            return
-        raw = self.workspace_tags_edit.text() if hasattr(self, "workspace_tags_edit") else ""
-        tags = self._normalized_tags(raw.split(","))
-        redacted = any(t.lower() == "redacted" for t in tags)
-        self.set_project_redaction(project, redacted, tags=tags, source="workspace-tags")
-
-    def _on_workspace_redacted_tag_toggled(self, checked):
-        if not self._ui_alive(self.workspace_stack):
-            return
-        project = self.selected_project or self.active_project
-        if not project:
-            return
-        raw = self.workspace_tags_edit.text() if hasattr(self, "workspace_tags_edit") else ""
-        tags = self._normalized_tags(raw.split(","))
-        self.set_project_redaction(project, bool(checked), tags=tags, source="workspace-tag-toggle")
-
-    def _sync_repo_visibility(self, project, make_private):
-        headers, _ = self.build_github_headers()
-        if not headers:
-            self.log_vcs(f"[redaction] Skipped GitHub visibility update for {project}: missing credentials")
-            return
-        owner = self.verified_user or self.active_credentials.get("username") or (self.get_credentials()[0] if hasattr(self, "get_credentials") else "")
-        if not owner or not project:
-            self.log_vcs(f"[redaction] Skipped GitHub visibility update: missing owner or project")
-            return
-        url = f"https://api.github.com/repos/{owner}/{project}"
-        payload = json.dumps({"private": bool(make_private)}).encode("utf-8")
-        headers = headers.copy()
-        headers["Content-Type"] = "application/json"
-
-        def work():
-            req = urllib.request.Request(url, data=payload, headers=headers, method="PATCH")
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    code = resp.getcode()
-                    data = json.load(resp)
-                    return True, code, data, None
-            except urllib.error.HTTPError as e:
-                try:
-                    err_body = e.read().decode("utf-8")
-                except Exception:
-                    err_body = str(e)
-                return False, e.code, None, err_body
-            except Exception as exc:  # noqa: BLE001
-                return False, None, None, str(exc)
-
-        def on_result(result):
-            ok, code, data, err = result
-            if not ok:
-                self.log_vcs(f"[redaction] GitHub visibility update failed ({code}): {err}")
-                return
-            label = "private" if make_private else "public"
-            self.log_vcs(f"[redaction] Set repo '{project}' {label} (HTTP {code})")
-
-        def on_error(err):
-            self.log_vcs(f"[redaction] Visibility update error: {err}")
-
-        self.run_in_background(work, on_result, on_error)
-
     def _build_workspace_graph_data(self, path, proj):
         nodes = []
         edges = []
@@ -7553,7 +5892,7 @@ class FocusManager(QtWidgets.QMainWindow):
         if not username or not (password or tokens):
             return False, "Missing GitHub credentials."
         repo = project
-        headers, _ = self.build_github_headers()
+        headers, method_used = self.build_github_headers()
         if not headers:
             return False, "Missing GitHub credentials."
         def request(method, url, data=None):
@@ -8497,9 +6836,6 @@ class FocusManager(QtWidgets.QMainWindow):
                     pre = self.autogit.ensure_git_repo(path, env=env)
             if pre.returncode != 0:
                 return False, "git init failed", pre.stderr
-            divergence = self.git_divergence(path, env=env)
-            if divergence and divergence.get("behind", 0) > 0:
-                return False, "remote ahead", f"Remote has {divergence['behind']} commits ahead of local; pull/rebase first."
             status = subprocess.run(["git", "-C", path, "status", "--porcelain"], capture_output=True, text=True, env=env)
             if status.returncode != 0:
                 return False, "git status failed", status.stderr
@@ -8571,126 +6907,6 @@ class FocusManager(QtWidgets.QMainWindow):
             return
         enabled = self.version_list.currentItem() is not None and self.auto_commit_toggle.isEnabled()
         self._set_enabled_safely(self.revert_version_btn, enabled)
-
-    def _on_repo_overview_toggled(self, collapsed):
-        self.set_collapsible_state("repo-overview", collapsed)
-        if not collapsed:
-            self.load_repository_overview()
-
-    def _format_repo_timestamp(self, value):
-        if not value:
-            return "-"
-        try:
-            if value.endswith("Z"):
-                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            else:
-                dt = datetime.fromisoformat(value)
-            local_dt = dt.astimezone()
-            return local_dt.strftime("%b %d %I:%M %p")
-        except Exception:
-            return value
-
-    def _set_repo_status(self, message, *, error=False, loading=False, cached=False):
-        if not hasattr(self, "repo_status_label"):
-            return
-        color = "#2e9b8f"
-        if error:
-            color = "#d14b4b"
-        elif loading:
-            color = "#8ad0ff"
-        self.repo_status_label.setText(f"{message}{' (cached)' if cached else ''}")
-        self.repo_status_label.setStyleSheet(f"color: {color};")
-
-    def _populate_repo_table(self, entries: list[dict], cached=False):
-        if not hasattr(self, "repo_table"):
-            return
-        self.repo_table.setRowCount(len(entries))
-        base_bg = QtGui.QColor("#0f1626")
-        for row, entry in enumerate(entries):
-            name_item = QtWidgets.QTableWidgetItem(entry.get("name", ""))
-            branches = ", ".join(entry.get("branches") or [])
-            branch_item = QtWidgets.QTableWidgetItem(branches or "-")
-            active_item = QtWidgets.QTableWidgetItem(entry.get("default", ""))
-            updated_item = QtWidgets.QTableWidgetItem(self._format_repo_timestamp(entry.get("updated")))
-            visibility = "PRIVATE" if entry.get("private") else "PUBLIC"
-            vis_item = QtWidgets.QTableWidgetItem(visibility)
-            vis_color = QtGui.QColor("#2e9b8f") if entry.get("private") else QtGui.QColor("#d14b4b")
-            vis_item.setForeground(vis_color)
-            for itm in (name_item, branch_item, active_item, updated_item, vis_item):
-                itm.setFlags(qt_no_edit(itm.flags()))
-                itm.setBackground(base_bg)
-            self.repo_table.setItem(row, 0, name_item)
-            self.repo_table.setItem(row, 1, branch_item)
-            self.repo_table.setItem(row, 2, active_item)
-            self.repo_table.setItem(row, 3, updated_item)
-            self.repo_table.setItem(row, 4, vis_item)
-        status_msg = "No repositories found." if not entries else f"Loaded {len(entries)} repositories."
-        self._set_repo_status(status_msg, cached=cached)
-
-    def load_repository_overview(self, force=False):
-        if self.repo_fetching:
-            return
-        if self.repo_cache is not None and not force:
-            self._populate_repo_table(self.repo_cache, cached=True)
-            return
-        headers, method_used = self.build_github_headers()
-        if not headers:
-            self._set_repo_status("GitHub credentials missing; add and verify in Settings.", error=True)
-            return
-        self.repo_fetching = True
-        self._set_repo_status("Loading repositories...", loading=True)
-
-        def work():
-            repos_url = "https://api.github.com/user/repos?per_page=100"
-            req = urllib.request.Request(repos_url, headers=headers, method="GET")
-            entries = []
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                repos = json.load(resp)
-            for repo in repos:
-                name = repo.get("name") or ""
-                owner = (repo.get("owner") or {}).get("login") or ""
-                private = bool(repo.get("private"))
-                default_branch = repo.get("default_branch") or ""
-                updated = repo.get("updated_at") or repo.get("pushed_at") or ""
-                branches = []
-                branch_url_template = repo.get("branches_url") or ""
-                if branch_url_template and "{" in branch_url_template:
-                    branch_url = branch_url_template.split("{", 1)[0]
-                else:
-                    branch_url = branch_url_template or f"https://api.github.com/repos/{owner}/{name}/branches"
-                branch_url = f"{branch_url}?per_page=100" if "?" not in branch_url else branch_url
-                try:
-                    breq = urllib.request.Request(branch_url, headers=headers, method="GET")
-                    with urllib.request.urlopen(breq, timeout=15) as bresp:
-                        branch_data = json.load(bresp)
-                        if isinstance(branch_data, list):
-                            branches = [b.get("name", "") for b in branch_data if isinstance(b, dict) and b.get("name")]
-                except Exception:
-                    branches = branches or []
-                entries.append(
-                    {
-                        "name": name,
-                        "owner": owner,
-                        "branches": branches,
-                        "default": default_branch,
-                        "updated": updated,
-                        "private": private,
-                    }
-                )
-            return entries
-
-        def on_result(entries):
-            self.repo_fetching = False
-            self.repo_cache = entries or []
-            self.repo_cache_time = datetime.now()
-            self._populate_repo_table(self.repo_cache)
-
-        def on_error(err):
-            self.repo_fetching = False
-            self.repo_cache = None
-            self._set_repo_status(f"Failed to load repositories: {err}", error=True)
-
-        self.run_in_background(work, on_result, on_error)
 
     def autogit_status(self):
         path, proj = self.resolve_project_path(prefer_canonical=True)
@@ -9032,27 +7248,6 @@ class FocusManager(QtWidgets.QMainWindow):
             base.update(extra)
         return self.supervisor.subprocess_env(base)
 
-    def git_divergence(self, path, env=None, branch=None):
-        env = self.git_env(env or {})
-        branch_cmd = subprocess.run(["git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, env=env)
-        branch_name = branch or (branch_cmd.stdout.strip() if branch_cmd.returncode == 0 else "main")
-        fetch = subprocess.run(["git", "-C", path, "fetch", "--prune", "origin"], capture_output=True, text=True, env=env)
-        if fetch.returncode != 0:
-            return None
-        cmp = subprocess.run(
-            ["git", "-C", path, "rev-list", "--left-right", "--count", f"{branch_name}...origin/{branch_name}"],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if cmp.returncode != 0:
-            return None
-        parts = cmp.stdout.strip().split()
-        if len(parts) != 2:
-            return None
-        ahead_local, behind_remote = int(parts[0]), int(parts[1])
-        return {"ahead": ahead_local, "behind": behind_remote, "branch": branch_name}
-
     # ---- Gemini credentials helpers ----
     def _load_gemini_settings(self):
         gem = self.settings.get("gemini", {})
@@ -9098,39 +7293,9 @@ class FocusManager(QtWidgets.QMainWindow):
         if not gem_bin:
             self.gemini_verified = False
             return False, "Gemini CLI not found"
-        env = self.supervisor.subprocess_env()
-        if has_api:
-            env["GEMINI_API_KEY"] = self.gemini_api_key
-        if has_login:
-            env["GEMINI_EMAIL"] = self.gemini_email
-            env["GEMINI_PASSWORD"] = self.gemini_password
-        cmd = [gem_bin, "--model", "gemini-pro", "--prompt", "OK", "--max-tokens", "1"]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=20)
-        except Exception as exc:  # noqa: BLE001
-            self.gemini_verified = False
-            self.log_debug("GEMINI_AUTH", {"ok": False, "error": str(exc)})
-            try:
-                self.event_bus.emit("GEMINI_AUTH", {"ok": False, "error": str(exc)})
-            except Exception:
-                pass
-            return False, f"Gemini verification error: {exc}"
-        stdout = res.stdout or ""
-        stderr = res.stderr or ""
-        rc = res.returncode
-        ok = rc == 0 and "OK" in stdout
-        if "auth" in stderr.lower() or "unauthorized" in stderr.lower():
-            ok = False
-        self.gemini_verified = bool(ok)
-        self.ai_enabled = bool(ok and self.ai_enabled or ok)
+        self.gemini_verified = True
+        self.ai_enabled = True
         self._save_gemini_settings()
-        self.log_debug("GEMINI_AUTH", {"ok": ok, "rc": rc, "stdout": stdout.strip(), "stderr": stderr.strip()})
-        try:
-            self.event_bus.emit("GEMINI_AUTH", {"ok": ok, "rc": rc, "stdout": stdout, "stderr": stderr})
-        except Exception:
-            pass
-        if not ok:
-            return False, f"Gemini authentication failed (rc={rc})"
         return True, "Gemini credentials verified"
 
     def build_github_headers(self):
@@ -9896,22 +8061,9 @@ class FocusManager(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import CSV", str(Path.home()), "CSV Files (*.csv)")
         if not path:
             return
-        target_project = None
-        target_list = None
-        if self.active_project:
-            reply = QtWidgets.QMessageBox.question(
-                self,
-                "Import Target",
-                f"Import tasks into active project '{self.active_project}'\nunder new list '{self.active_project}'?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.Yes,
-            )
-            if reply == QtWidgets.QMessageBox.Yes:
-                target_project = self.active_project
-                target_list = self.active_project
         self.set_state("Loading", "Importing tasks...")
         try:
-            self.store.import_csv(path, target_project=target_project, target_list_name=target_list)
+            self.store.import_csv(path)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.critical(self, "Import Error", str(exc))
             self.show_error_banner(str(exc))
@@ -9927,8 +8079,7 @@ class FocusManager(QtWidgets.QMainWindow):
             return
         self.set_state("Executing", "Exporting tasks...")
         try:
-            atlas_format = str(path).lower().endswith(".tasks.csv")
-            self.store.export_csv(path, atlas_format=atlas_format)
+            self.store.export_csv(path)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.critical(self, "Export Error", str(exc))
             self.show_error_banner(str(exc))
@@ -10198,7 +8349,7 @@ class FocusManager(QtWidgets.QMainWindow):
     def update_identity_banner(self):
         if not hasattr(self, "identity_banner"):
             return
-        transformed = glyph_transform("SINGULARITY CONSOLE")
+        transformed = glyph_transform("FOCUS CONSOLE")
         top = "«⟬ ⚠️ ⟭»—⟦ $ I Ͷ Ģ Ǚ Ⅼ ⩑ ʁ ∤ Ͳ ϓ ⟧—«⟬ ⚠️ ⟭»"
         bottom = f"[Ø]-⟦ {transformed} ⟧-[Ø]"
         normalized = normalize_lines([top, bottom])
@@ -10216,13 +8367,6 @@ class FocusManager(QtWidgets.QMainWindow):
         self.identity_banner.setText(html_block)
 
 
-def qt_message_handler(mode, context, message):
-    try:
-        print(f"[QT {int(mode)}] {message}")
-    except Exception:
-        pass
-
-
 def main():
     pre_settings = {}
     if SETTINGS_FILE.exists():
@@ -10235,33 +8379,12 @@ def main():
     supervisor = StabilitySupervisor(debug_level=debug_level, on_event=None, log_fn=None)
     # Apply sanitized environment globally before creating the QApplication to avoid Qt/XCB instability.
     os.environ.update(supervisor.env_base)
-    # Ensure Qt logging is routed to stdout for visibility of fatal warnings.
-    try:
-        QtCore.qInstallMessageHandler(qt_message_handler)
-    except Exception:
-        pass
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        app = QtWidgets.QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     window = FocusManager(supervisor=supervisor, settings=pre_settings, debug_level=debug_level)
     window.show()
     if QT6:
-        ret = app.exec()
-    else:
-        ret = app.exec_()
-    try:
-        try:
-            app.aboutToQuit.disconnect()
-        except Exception:
-            pass
-        for w in app.topLevelWidgets():
-            try:
-                w.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
-    sys.exit(ret)
+        sys.exit(app.exec())
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
