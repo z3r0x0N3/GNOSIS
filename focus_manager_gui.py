@@ -4418,8 +4418,8 @@ class FocusManager(QtWidgets.QMainWindow):
                 return
             url_path = bg_path.replace("\\", "/")
             sheet = (
-                f"#singularityMainWindow {{ border-image: url('{url_path}') 0 0 0 0 stretch stretch; }}"
-                f"#centralwidget {{ border-image: url('{url_path}') 0 0 0 0 stretch stretch; }}"
+                f"#singularityMainWindow {{ background-image: url('{url_path}'); background-position: center center; background-repeat: no-repeat; background-attachment: fixed; }}"
+                f"#centralwidget {{ background-image: url('{url_path}'); background-position: center center; background-repeat: no-repeat; background-attachment: fixed; }}"
             )
             self.setStyleSheet(sheet)
         except Exception:
