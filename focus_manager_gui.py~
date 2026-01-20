@@ -10257,7 +10257,7 @@ class FocusManager(QtWidgets.QMainWindow):
         if not hasattr(self, "identity_banner"):
             return
         transformed = glyph_transform("SINGULARITY CONSOLE")
-        top = "«⟬ ⚠️ ⟭»——«⟬ ⚠️ ⟭»"
+        top = "«⟬ ⚠️ ⟭»—⟦ $ I Ͷ Ģ Ǚ Ⅼ ⩑ ʁ ∤ Ͳ ϓ ⟧—«⟬ ⚠️ ⟭»"
         bottom = f"[Ø]-⟦ {transformed} ⟧-[Ø]"
         normalized = normalize_lines([top, bottom])
         # Build HTML with preserved spacing
