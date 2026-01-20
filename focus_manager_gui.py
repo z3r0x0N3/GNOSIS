@@ -2727,6 +2727,8 @@ class AutoGITIntegration:
         os.makedirs(project_path, exist_ok=True)
         if self.is_git_repo(project_path, env=env):
             self._ensure_identity(project_path, env)
+            # ensure we are on a usable branch
+            self.ensure_branch(project_path, env=env)
             return subprocess.CompletedProcess([], 0, "", "")
         result = subprocess.run(
             ["git", "-C", project_path, "init", "-b", "main"],
@@ -2736,7 +2738,36 @@ class AutoGITIntegration:
         )
         if result.returncode == 0:
             self._ensure_identity(project_path, env)
+            self.ensure_branch(project_path, env=env)
         return result
+
+    def ensure_branch(self, project_path, branch="main", env=None):
+        env = self._merge_env(env)
+        # Determine current branch
+        head = subprocess.run(
+            ["git", "-C", project_path, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        current = head.stdout.strip() if head.returncode == 0 else ""
+        if current and current != "HEAD":
+            return head
+        # list branches
+        branches = subprocess.run(
+            ["git", "-C", project_path, "branch", "--list"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        existing = [b.strip().lstrip("* ").strip() for b in branches.stdout.splitlines() if b.strip()]
+        if branch in existing:
+            return subprocess.run(["git", "-C", project_path, "checkout", branch], capture_output=True, text=True, env=env)
+        if existing:
+            # pick first existing branch
+            return subprocess.run(["git", "-C", project_path, "checkout", existing[0]], capture_output=True, text=True, env=env)
+        # no branches: create main
+        return subprocess.run(["git", "-C", project_path, "checkout", "-b", branch], capture_output=True, text=True, env=env)
 
     def is_dubious_error(self, result):
         msg = (getattr(result, "stderr", "") or "") + (getattr(result, "stdout", "") or "")
