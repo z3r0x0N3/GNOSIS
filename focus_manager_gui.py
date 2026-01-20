@@ -4935,11 +4935,11 @@ class FocusManager(QtWidgets.QMainWindow):
                 continue
             geom = w.geometry()
             if geom.bottom() > parent.height() or geom.right() > parent.width() or w.height() < w.minimumHeight():
-                    parent.updateGeometry()
-                try:
-                    parent.layout().activate()
-                except Exception:
-                    pass
+                parent.updateGeometry()
+            try:
+                parent.layout().activate()
+            except Exception:
+                pass
 
     # ---- Date/time formatting helpers (12-hour, human-readable) ----
     @staticmethod
