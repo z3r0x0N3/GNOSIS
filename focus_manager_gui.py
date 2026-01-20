@@ -6706,7 +6706,7 @@ class FocusManager(QtWidgets.QMainWindow):
             "size": st.st_size,
             "perms": stat.S_IMODE(st.st_mode),
             "hidden": os.path.basename(path).startswith("."),
-            "modified": datetime.fromtimestamp(st.st_mtime).isoformat(sep=" ", timespec="seconds"),
+            "modified": self._format_ui_datetime(datetime.fromtimestamp(st.st_mtime)),
             "project": self.active_project or self.selected_project,
             "status": self.workspace_status.get(path),
         }
