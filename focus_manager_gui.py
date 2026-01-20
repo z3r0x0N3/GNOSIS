@@ -4935,11 +4935,38 @@ class FocusManager(QtWidgets.QMainWindow):
                 continue
             geom = w.geometry()
             if geom.bottom() > parent.height() or geom.right() > parent.width() or w.height() < w.minimumHeight():
-                parent.updateGeometry()
+                    parent.updateGeometry()
                 try:
                     parent.layout().activate()
                 except Exception:
                     pass
+
+    # ---- Date/time formatting helpers (12-hour, human-readable) ----
+    @staticmethod
+    def _format_ui_datetime(value):
+        try:
+            if isinstance(value, (int, float)):
+                dt = datetime.fromtimestamp(value)
+            elif isinstance(value, datetime):
+                dt = value
+            else:
+                dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return dt.strftime("%b %d, %Y %I:%M %p")
+        except Exception:
+            return str(value)
+
+    @staticmethod
+    def _format_ui_time(value):
+        try:
+            if isinstance(value, (int, float)):
+                dt = datetime.fromtimestamp(value)
+            elif isinstance(value, datetime):
+                dt = value
+            else:
+                dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return dt.strftime("%I:%M:%S %p")
+        except Exception:
+            return str(value)
 
     def _reset_tab_scroll(self, idx):
         if not hasattr(self, "tab_scrolls"):
