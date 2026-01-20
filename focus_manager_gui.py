@@ -7550,14 +7550,14 @@ class FocusManager(QtWidgets.QMainWindow):
     def _populate_net_timeline(self, events):
         self.net_timeline.clear()
         for ev in events[-200:]:
-            ts = datetime.fromtimestamp(ev.get("timestamp", time.time())).strftime("%H:%M:%S")
+            ts = self._format_ui_time(ev.get("timestamp", time.time()))
             text = f"[{ts}] {ev.get('event','')} {ev.get('source','?')} -> {ev.get('dest','?')} ({int(ev.get('latency_ms',0))} ms)"
             self.net_timeline.addItem(text)
 
     def _populate_net_table(self, events):
         self.net_table.setRowCount(len(events))
         for row, ev in enumerate(events):
-            ts = datetime.fromtimestamp(ev.get("timestamp", time.time())).strftime("%H:%M:%S")
+            ts = self._format_ui_time(ev.get("timestamp", time.time()))
             vals = [
                 ts,
                 ev.get("event", ""),
